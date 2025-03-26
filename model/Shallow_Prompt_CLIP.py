@@ -3,7 +3,6 @@ import torch
 from torch.nn import functional as F
 import numpy as np
 import clip
-from torchattacks import PGD, TPGD
 from torchvision.datasets import CIFAR100
 from dataset.cifar100 import load_train_cifar100, load_test_cifar100
 from model.shallow_encoder import TextEncoder,VisionEncoder
@@ -210,101 +209,26 @@ class PromptCLIP_Shallow:
             #print("current loss: {}".format(self.min_loss))
         return loss
 
-    # @torch.no_grad()
-    # import torch
-# Giả sử PGD đã được import, ví dụ: from torchattacks import PGD
-# Giả sử các biến model, eps, alpha, steps đã được định nghĩa ở đâu đó
-# hoặc là thuộc tính của class (ví dụ: self.model, self.eps, ...)
-
+    @torch.no_grad()
     def test(self):
-        # --- Khởi tạo tấn công ---
-        # Sử dụng self.model như yêu cầu, với eps, alpha, steps cố định như trong code của bạn
-        # CẢNH BÁO: Như đã thảo luận, việc dùng self.model trực tiếp có thể không tối ưu
-        # cho logic phân loại cuối cùng của bạn (vốn dùng prompt).
-        # Một wrapper sẽ chính xác hơn, nhưng theo yêu cầu, ta giữ nguyên.
-        try:
-            # Đảm bảo self.model ở chế độ eval nếu PGD không tự làm điều đó
-            # self.model.eval() # Có thể cần hoặc không, tùy vào PGD và bạn muốn gì
-            attack = PGD(self.model, eps=4/255, alpha=2.67/(4*255), steps=100)
-            print(f"Khởi tạo PGD với self.model: eps={4/255:.4f}, alpha={2.67/(4*255):.6f}, steps=100")
-        except Exception as e: # Bắt lỗi rộng hơn
-            print(f"Lỗi khi khởi tạo PGD: {e}. Đảm bảo self.model là nn.Module hợp lệ.")
-            return None, None # Hoặc xử lý lỗi khác
-    
-        correct_clean = 0.
-        correct_attacked = 0. # Thêm biến đếm cho ảnh bị tấn công
-        total = 0
-    
-        # --- Chuyển encoder sang chế độ eval ---
-        self.image_encoder.eval()
-        self.text_encoder.eval()
-    
-        # --- Lưu và tắt chế độ parallel nếu có ---
+        correct = 0.
         parallel = self.parallel
-        self.parallel = self.text_encoder.parallel = self.image_encoder.parallel = False # Tắt parallel cho test
-        device = next(self.image_encoder.parameters()).device # Lấy device từ model
-    
-        # --- Kiểm tra prompt ---
-        if self.best_prompt_text is None or self.best_prompt_image is None:
-            print("Lỗi: best_prompt_text hoặc best_prompt_image chưa được thiết lập.")
-            # Khôi phục parallel trước khi thoát
-            self.parallel = self.text_encoder.parallel = self.image_encoder.parallel = parallel
-            return None, None
-    
-        # --- Tính text features một lần ---
-        with torch.no_grad(): # Không cần gradient cho text features cố định
-            best_prompt_text_dev = self.best_prompt_text.to(device)
-            text_features = self.text_encoder(best_prompt_text_dev)
-            text_features = text_features / text_features.norm(dim=-1, keepdim=True)
-    
-        logit_scale = self.logit_scale.exp()
-        best_prompt_image_dev = self.best_prompt_image.to(device) # Chuyển prompt ảnh lên device
-    
-        # --- Vòng lặp qua dữ liệu test ---
+        self.parallel=self.text_encoder.parallel = self.image_encoder.parallel = False
         for batch in self.test_loader:
-            # parse_batch nên trả về tensor trên CPU
-            image, label = self.parse_batch(batch)
-            image, label = image.to(device), label.to(device) # Chuyển sang device ở đây
-            batch_size = image.shape[0]
-            total += batch_size
-    
-            # --- Đánh giá trên ảnh gốc (Clean Accuracy) ---
-            with torch.no_grad(): # Không cần gradient khi đánh giá
-                image_features_clean = self.image_encoder(image, best_prompt_image_dev)
-                image_features_clean = image_features_clean / image_features_clean.norm(dim=-1, keepdim=True)
-                logits_clean = logit_scale * image_features_clean @ text_features.t()
-                prediction_clean = logits_clean.argmax(dim=-1)
-                correct_clean += (prediction_clean == label).float().sum().item()
-    
-            # --- Tạo ảnh bị tấn công và đánh giá (Attacked Accuracy) ---
-            # PGD cần gradient, không dùng torch.no_grad() ở đây
-            # attack() sẽ tự xử lý requires_grad nếu cần
-            attacked_image = attack(image, label) # Tạo ảnh bị tấn công
-    
-            # Đánh giá ảnh bị tấn công (không cần gradient ở bước này)
-            with torch.no_grad():
-                # Sử dụng logic y hệt như đánh giá ảnh gốc, nhưng với attacked_image
-                image_features_attacked = self.image_encoder(attacked_image, best_prompt_image_dev)
-                image_features_attacked = image_features_attacked / image_features_attacked.norm(dim=-1, keepdim=True)
-                logits_attacked = logit_scale * image_features_attacked @ text_features.t()
-                prediction_attacked = logits_attacked.argmax(dim=-1)
-                correct_attacked += (prediction_attacked == label).float().sum().item() # Cập nhật biến đếm attacked
-    
-        # --- Khôi phục chế độ parallel ---
-        self.parallel = self.text_encoder.parallel = self.image_encoder.parallel = parallel
-        # Khôi phục chế độ train nếu cần
-        # self.image_encoder.train()
-        # self.text_encoder.train()
-    
-        # --- Tính toán độ chính xác ---
-        acc_clean = correct_clean / total if total > 0 else 0.
-        acc_attacked = correct_attacked / total if total > 0 else 0. # Tính acc attacked
-    
-        # In kết quả (tùy chọn)
-        print(f"Clean Accuracy: {acc_clean:.4f}")
-        print(f"Attacked Accuracy (PGD on self.model): {acc_attacked:.4f}")
-    
-        return acc_clean, acc_attacked # Trả về cả hai giá trị
+            image,label = self.parse_batch(batch)
+            text_features = self.text_encoder(self.best_prompt_text)
+            image_features = self.image_encoder(image,self.best_prompt_image)
+
+            image_features = image_features / image_features.norm(dim=-1,keepdim=True)
+            text_features = text_features / text_features.norm(dim=-1,keepdim=True)
+            logit_scale = self.logit_scale.exp()
+            logits = logit_scale*image_features@text_features.t()
+            prediction = logits.argmax(dim=-1)
+            correct += (prediction == label).float().sum()
+        self.parallel=self.text_encoder.parallel = self.image_encoder.parallel = parallel
+        acc = correct/len(self.test_data)
+        #print("Best Prompt Embedding - Acc : "+str(acc))
+        return acc
 
     def load_dataset(self):
         if self.task_name == 'CIFAR100':
