@@ -100,9 +100,9 @@ solutions = opt.ask()
 prompt_text_list= prompt_clip.generate_text_prompts([x[:intrinsic_dim_L] for x in solutions])
 prompt_image_list = prompt_clip.generate_visual_prompts([x[intrinsic_dim_L:] for x in solutions])
 prompt_clip.eval([prompt_text_list, prompt_image_list])
-acc_o, acc_adv_o = prompt_clip.test()
+acc_o = prompt_clip.test()
 print("Original Acc : " + str(acc_o))
-print("Original Acc Adv : " + str(acc_adv_o))
+# print("Original Acc Adv : " + str(acc_adv_o))
 print('Population Size: {}'.format(cfg["popsize"]))
 
 # Black-box prompt tuning
