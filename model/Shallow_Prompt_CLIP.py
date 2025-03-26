@@ -1,239 +1,420 @@
+import os
 import torch
-import argparse
-import yaml
-from tqdm import tqdm
-from algorithm.CMA_ES import shallow_cma
-from algorithm.LM_CMA_ES import Shallow_LMCMAES
-from algorithm.MMES import Shallow_MMES
-from algorithm.LMMAES import Shallow_LMMAES
-from model.Shallow_Prompt_CLIP import PromptCLIP_Shallow
+from torch.nn import functional as F
 import numpy as np
-import time
-import os # Thêm os
+import clip
+from torchvision.datasets import CIFAR100
+from dataset.cifar100 import load_train_cifar100, load_test_cifar100
+from model.shallow_encoder import TextEncoder,VisionEncoder
+from model.analysis_utils import Analysis_Util
+from dataset.general import load_train,load_test
+import copy # Thêm import copy
 
-__classification__ = ["CIFAR100","caltech101","StanfordCars","OxfordPets","UCF-101","DTD","EuroSAT",
-                      "Food101","SUN397","ImageNet"]
-__pypop__ = ["shallow_lmcmaes","shallow_mmes","shallow_dcem","shallow_maes"]
-__dataset__ = "/home/yu/dataset"
-__output__ = "/home/yu/dataset/result"
-# __output__ = "/home/yu/result"
-__backbone__ = "ViT-B/32"
+class PromptCLIP_Shallow:
+    def __init__(self,task_name,cfg):
+        self.task_name = task_name
+        self.opt_name = cfg["opt_name"]
+        self.data_dir = cfg["data_dir"]
+        self.output_dir = cfg["output_dir"]
+        self.backbone = cfg["backbone"]
+        self.popsize = cfg["popsize"]
+        self.parallel = cfg["parallel"]
+        self.batch_size = cfg["batch_size"]
+        self.k_shot = cfg["k_shot"]
+        self.seed = cfg["seed"]
+        self.num_call = 0
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.model, self.preprocess = clip.load(self.backbone,device=self.device)
+        self.load_dataset()
+        self.loss = []
+        self.acc = []
+        # Text Encoder
+        self.n_prompt_tokens_L = cfg["n_prompt_tokens_L"]
+        self.intrinsic_dim_L = cfg["intrinsic_dim_L"]
+        self.ctx_dim_L = self.model.ln_final.weight.shape[0]
+        self.text_encoder = TextEncoder(self.model)
 
-parser = argparse.ArgumentParser()
-parser.add_argument("--task_name", default="CIFAR100", type=str)
-parser.add_argument("--opt", default="shallow_cma", type=str)
-parser.add_argument("--parallel", action='store_true', help='Whether to allow parallel evaluation')
-# Thêm tùy chọn để bật/tắt PGD test cuối cùng
-parser.add_argument("--pgd_test", action='store_true', help='Perform PGD robustness test at the end.')
+        # Image Encoder
+        self.n_prompt_tokens_V = cfg["n_prompt_tokens_V"]
+        self.ctx_dim_V = self.model.visual.width
+        self.intrinsic_dim_V = cfg["intrinsic_dim_V"]
+        self.image_encoder = VisionEncoder(self.model)
+        self.image_encoder.n_prompt_tokens_V = self.n_prompt_tokens_V
 
+        self.loss_type = cfg["loss_type"]
+        self.init_prompt = None
+        self.imsize = self.image_encoder.input_resolution
+        self.logit_scale = self.model.logit_scale
+        self.dtype = self.model.dtype
+        self.best_prompt_text = None
+        self.best_prompt_image = None
+        self.best_accuracy = 0
+        self.min_loss = None
+        self.loss = []
+        self.test_every = cfg["test_every"] if self.parallel else cfg["test_every"]*self.popsize
+        self.sigma = cfg["sigma"]
 
-args = parser.parse_args()
-assert "shallow" in args.opt, "Only shallow prompt tuning is supported in this file."
-# --- Sửa đường dẫn YAML ---
-config_path = os.path.join(os.path.dirname(__file__), "configs/shallow_prompt.yaml")
-cfg = yaml.load(open(config_path), Loader=yaml.FullLoader)
-# -------------------------
+        # --- Thêm tham số PGD ---
+        self.pgd_eps = cfg.get("pgd_eps", 8/255) # Ngưỡng nhiễu (epsilon)
+        self.pgd_alpha = cfg.get("pgd_alpha", 2/255) # Kích thước bước (alpha)
+        self.pgd_steps = cfg.get("pgd_steps", 10) # Số bước PGD
+        # Xác định min/max cho clip dựa trên normalization của CLIP
+        # Giá trị này là xấp xỉ, bạn có thể tính chính xác hơn nếu cần
+        self.clip_min = (0.0 - np.mean([0.48145466, 0.4578275, 0.40821073])) / np.mean([0.26862954, 0.26130258, 0.27577711])
+        self.clip_max = (1.0 - np.mean([0.48145466, 0.4578275, 0.40821073])) / np.mean([0.26862954, 0.26130258, 0.27577711])
+        # ------------------------
 
-cfg["opt_name"] = args.opt
-cfg["data_dir"] = __dataset__
-cfg["output_dir"] = __output__
-cfg["opt_name"] = args.opt
-cfg["backbone"] = __backbone__
+        # Lauguage Linear Layer
+        self.linear_L = torch.nn.Linear(self.intrinsic_dim_L, self.n_prompt_tokens_L * self.ctx_dim_L,
+                                      bias=False,device=self.device,dtype=self.dtype)
+        embedding = self.model.token_embedding.weight.cpu()
+        mu_hat = np.mean(embedding.reshape(-1).detach().cpu().numpy())
+        std_hat = np.std(embedding.reshape(-1).detach().cpu().numpy())
+        mu = 0.0
+        std = std_hat / (np.sqrt(self.intrinsic_dim_L) * self.sigma)
+        print('[Embedding] mu: {} | std: {} [RandProj]  mu: {} | std: {}'.format(mu_hat, std_hat, mu, std))
+        for p in self.linear_L.parameters():
+            torch.nn.init.normal_(p, mu, std)
+        # Vision Linear Layer
+        self.linear_V = torch.nn.Linear(self.intrinsic_dim_V, self.n_prompt_tokens_V * self.ctx_dim_V,
+                                        bias=False, device=self.device, dtype=self.dtype)
+        conv = self.model.visual.conv1.weight.cpu()
+        mu_hat = np.mean(conv.reshape(-1).detach().cpu().numpy())
+        std_hat = np.std(conv.reshape(-1).detach().cpu().numpy())
+        #mu = 0.0
+        mu = mu_hat*3072/self.intrinsic_dim_V
+        std = std_hat * np.sqrt(3072/self.intrinsic_dim_V) * self.sigma
+        print('[Conv] mu: {} | std: {} [RandProj]  mu: {} | std: {}'.format(mu_hat, std_hat, mu, std))
+        for p in self.linear_V.parameters():
+            torch.nn.init.normal_(p, mu, std)
 
-# Cập nhật cfg với các giá trị cụ thể cho task và PGD (nếu có trong file yaml)
-for k,v in cfg[args.task_name].items():
-    cfg[k]=v
-cfg["parallel"] = args.parallel
+    # ... (các phương thức khác giữ nguyên: get_text_information, get_image_information, generate_text_prompts, generate_visual_prompts, metric) ...
 
-# Thêm các giá trị PGD mặc định nếu chưa có trong cfg
-cfg.setdefault("pgd_eps", 8/255)
-cfg.setdefault("pgd_alpha", 2/255)
-cfg.setdefault("pgd_steps", 10)
-
-device = "cuda" if torch.cuda.is_available() else "cpu"
-intrinsic_dim_L = cfg["intrinsic_dim_L"]
-intrinsic_dim_V = cfg["intrinsic_dim_V"]
-
-# Eval function and Settings(if needed)+
-# Hàm fitness_eval sẽ được gọi bởi các thuật toán tối ưu
-# Nó cần trả về loss (hoặc giá trị fitness) để tối ưu hóa
-def fitness_eval(prompt_zip):
-    # Generate prompts from the intrinsic vector 'prompt_zip'
-    # prompt_zip là một vector [intrinsic_dim_L + intrinsic_dim_V]
-    prompt_text_list = prompt_clip.generate_text_prompts([prompt_zip[:intrinsic_dim_L]]) # Chỉ một individual
-    prompt_image_list = prompt_clip.generate_visual_prompts([prompt_zip[intrinsic_dim_L:]]) # Chỉ một individual
-
-    # prompt_clip.eval xử lý một cặp (text_prompt, image_prompt)
-    # Nó tính loss trên tập train và thực hiện test định kỳ
-    # Trả về loss trung bình trên tập train cho cặp prompt này
-    fitness = prompt_clip.eval( (prompt_text_list[0], prompt_image_list[0]) ) # Truyền tuple
-
-    # In thông tin (có thể đã được xử lý bên trong prompt_clip.eval)
-    # if prompt_clip.num_call % (prompt_clip.test_every) == 0:
-    #     print("-------------------------Epoch {}---------------------------".format(prompt_clip.num_call/prompt_clip.test_every))
-    # if prompt_clip.num_call % (prompt_clip.popsize) == 0:
-    #     print("Evaluation of Individual: {}, Generation: {}".format(prompt_clip.num_call % prompt_clip.popsize,
-    #                                                             int(prompt_clip.num_call / prompt_clip.popsize)))
-    # if prompt_clip.num_call % prompt_clip.test_every == 0:
-    #     print("current loss: {}".format(prompt_clip.min_loss))
-    #     print("Best Prompt Embedding - Acc : " + str(prompt_clip.best_accuracy))
-
-    # Các thuật toán tối ưu thường tối thiểu hóa, nên trả về loss
-    return fitness # fitness ở đây là loss
-
-
-ndim_problem = intrinsic_dim_L + intrinsic_dim_V
-
-# --- Cấu hình cho các thuật toán tối ưu ---
-# Cấu hình chung (sử dụng bởi pypop)
-pro = {'fitness_function': fitness_eval,
-       'ndim_problem': ndim_problem}
-opt_cfg = {'fitness_threshold': 1e-10, # Ngưỡng dừng sớm (ít dùng với max_runtime)
-           'seed_rng': 0,
-           'max_runtime': 20800, # Thời gian chạy tối đa (giây)
-           'x': 0 * np.ones((ndim_problem,)),  # Điểm bắt đầu (mean)
-           'sigma': cfg['sigma'], # Độ lệch chuẩn ban đầu
-           'verbose_frequency': 5, # Tần suất in log
-           'n_individuals': cfg["popsize"], # Kích thước quần thể
-           'is_restart': False} # Có khởi động lại không
-
-# Cấu hình riêng cho shallow_cma (nếu cần)
-cma_cfg = cfg.copy() # Tạo bản sao để tránh thay đổi cfg gốc
-cma_cfg.update(opt_cfg) # Gộp cấu hình chung vào
-
-# ------------------------------------------
-
-# Load algorithm
-opt = None
-if args.opt == "shallow_cma":
-    # shallow_cma có thể có cách nhận config khác, kiểm tra implementation của nó
-    # Giả sử nó nhận trực tiếp dict cfg
-    opt = shallow_cma(cma_cfg) # Truyền dict config đã gộp
-elif args.opt == "shallow_lmcmaes":
-    opt = Shallow_LMCMAES(pro, opt_cfg)
-elif args.opt == "shallow_mmes":
-    opt = Shallow_MMES(pro, opt_cfg)
-elif args.opt == "shallow_lmmaes":
-    opt = Shallow_LMMAES(pro,opt_cfg)
-# Thêm các thuật toán khác nếu có
-# elif args.opt == "shallow_dcem":
-#     opt = Shallow_DCEM(pro, opt_cfg) # Ví dụ
-# elif args.opt == "shallow_maes":
-#     opt = Shallow_MAES(pro, opt_cfg) # Ví dụ
-
-
-# Build CLIP model
-prompt_clip = PromptCLIP_Shallow(args.task_name,cfg) # Truyền cfg vào PromptCLIP_Shallow
-
-# --- Phần khởi tạo ban đầu (có thể không cần thiết nếu thuật toán tự xử lý) ---
-# text_context = prompt_clip.get_text_information()
-# image_context = prompt_clip.get_image_information()
-# prompt_clip.text_encoder.set_context(text_context)
-# prompt_clip.image_encoder.set_context(image_context)
-# solutions = opt.ask() # Lấy giải pháp ban đầu từ thuật toán
-# prompt_text_list= prompt_clip.generate_text_prompts([x[:intrinsic_dim_L] for x in solutions])
-# prompt_image_list = prompt_clip.generate_visual_prompts([x[intrinsic_dim_L:] for x in solutions])
-# if cfg["parallel"]:
-#      # Đánh giá song song nếu được hỗ trợ
-#      initial_fitnesses = prompt_clip.eval([prompt_text_list, prompt_image_list])
-#      initial_fitnesses = [f.item() for f in initial_fitnesses]
-# else:
-#      # Đánh giá tuần tự
-#      initial_fitnesses = [prompt_clip.eval(x).item() for x in zip(prompt_text_list, prompt_image_list)]
-# print("Initial Population Evaluation Done.")
-# print("Original Acc (based on initial best): " + str(prompt_clip.test(attack=False)[0].item())) # Chỉ lấy clean acc
-# -----------------------------------------------------------------------------
-
-
-print('Population Size: {}'.format(cfg["popsize"]))
-print(f'Using Optimizer: {args.opt}')
-print(f'Task: {args.task_name}')
-print(f'Backbone: {cfg["backbone"]}')
-print(f'Parallel Evaluation: {cfg["parallel"]}')
-
-# Black-box prompt tuning
-start_time = time.time()
-
-if args.opt in __pypop__:
-    # Các thuật toán từ thư viện pypop thường có phương thức optimize()
-    # Chúng sẽ tự gọi fitness_function (fitness_eval của chúng ta)
-    print(f"Starting optimization with {args.opt} using pypop interface...")
-    res = opt.optimize() # optimize() sẽ chạy vòng lặp ask-tell bên trong
-    print("Optimization finished.")
-    # Kết quả có thể nằm trong 'res' hoặc trong prompt_clip (do fitness_eval cập nhật)
-
-else:
-    # Các thuật toán khác (như shallow_cma tự viết) có thể dùng vòng lặp ask-tell rõ ràng
-    print(f"Starting optimization with {args.opt} using ask-tell loop...")
-    generation = 0
-    while not opt.stop(): # Kiểm tra điều kiện dừng của thuật toán
-        generation += 1
-        print(f"\n--- Generation {generation} ---")
-        solutions = opt.ask() # Lấy tập giải pháp mới từ thuật toán
-
-        # Generate prompts for the current solutions
-        prompt_text_list= prompt_clip.generate_text_prompts([x[:intrinsic_dim_L] for x in solutions])
-        prompt_image_list = prompt_clip.generate_visual_prompts([x[intrinsic_dim_L:] for x in solutions])
-
-        # Evaluate the solutions
-        if cfg["parallel"]:
-            # Đánh giá song song (prompt_clip.eval xử lý việc này)
-            print("Evaluating solutions in parallel...")
-            fitnesses = prompt_clip.eval([prompt_text_list, prompt_image_list]) # eval trả về list loss
-            fitnesses = [x.item() for x in tqdm(fitnesses,ncols=80, desc="Parallel Eval")]
+    def get_text_information(self,caption=None):
+        # classification task - caption - None
+        # refcoco ask - caption - str
+        prompt_prefix = " ".join(["X"] * self.n_prompt_tokens_L)
+        if caption is None:
+            classnames = [name.replace("_", " ").replace("-"," ") for name in self.classes]
+            pattern_prompts = [prompt_prefix + " " + name + "." for name in classnames]
+            tokenized_pattern_prompts= torch.cat([clip.tokenize(p) for p in pattern_prompts]).to(self.device)
+            with torch.no_grad():
+                init_pattern_embedding = self.model.token_embedding(tokenized_pattern_prompts).type(self.dtype)
+            context = {"n_cls":self.n_cls, "n_prompt_tokens_L":self.n_prompt_tokens_L,
+                       "init_pattern_embedding":init_pattern_embedding, "tokenized_pattern_prompts":tokenized_pattern_prompts,
+                       "batch_size":self.batch_size,"pop_size":self.popsize,"parallel":self.parallel}
         else:
-            # Đánh giá tuần tự
-            print("Evaluating solutions sequentially...")
-            fitnesses = []
-            # Sử dụng zip để kết hợp text và image prompts cho từng solution
-            for i, p_pair in enumerate(tqdm(zip(prompt_text_list, prompt_image_list), total=len(solutions), ncols=80, desc="Sequential Eval")):
-                 # Gọi eval cho từng cặp prompt (text, image)
-                 # Lưu ý: eval bây giờ thực hiện test định kỳ bên trong
-                 loss = prompt_clip.eval(p_pair)
-                 fitnesses.append(loss.item()) # Lấy giá trị loss
+            pattern_prompt = prompt_prefix + caption + "."
+            tokenized_pattern_prompts = torch.cat([clip.tokenize(pattern_prompt)]).to(self.device)
+            with torch.no_grad():
+                init_pattern_embedding = self.model.token_embedding(tokenized_pattern_prompts).type(self.dtype)
+            context = {"n_cls":1,"n_prompt_tokens_L":self.n_prompt_tokens_L,
+                       "init_pattern_embedding":init_pattern_embedding, "tokenized_pattern_prompts":tokenized_pattern_prompts,"batch_size":self.batch_size,
+                       "pop_size":self.popsize,"parallel":self.parallel}
+        return context
 
-        # Cung cấp kết quả đánh giá lại cho thuật toán
-        opt.tell(solutions, fitnesses)
+    def get_image_information(self):
+        context = {"n_prompt_tokens_V": self.n_prompt_tokens_V,
+                   "batch_size": self.batch_size, "pop_size": self.popsize, "parallel": self.parallel}
+        return context
 
-        # In thông tin (có thể đã được in bên trong prompt_clip.eval khi test được thực hiện)
-        # if prompt_clip.num_call % prompt_clip.test_every == 0:
-        #     print(f"Current Min Loss: {prompt_clip.min_loss:.6f}")
-        #     print(f"Current Best Clean Acc: {prompt_clip.best_accuracy:.4f}")
+    def generate_text_prompts(self,intrinsic_vectors):
+        prompt_list = []
+        for vector in intrinsic_vectors:
+            z = torch.tensor(vector, device=self.device, dtype=self.dtype)
+            # [intrinsic_dim_L,] -> [n_prompt_token,ctx_dim]
+            z = self.linear_L(z).reshape(self.n_prompt_tokens_L, -1)
+            if self.init_prompt is not None:
+                z = z + self.init_prompt  # Az + p_0
 
-    print("Optimization finished.")
+            prompt_list.append(z)
+        return prompt_list
+
+    def generate_visual_prompts(self,intrinsic_vectors):
+        visual_prompt_list = []
+        for vector in intrinsic_vectors:
+            z = torch.tensor(vector,device=self.device,dtype=self.dtype)
+            # [intrinsic_dim_L,] -> [n_prompt_token,ctx_dim]
+            z = self.linear_V(z).reshape(self.n_prompt_tokens_V,-1)
+            #z = z + self.position_V
+            visual_prompt_list.append(z)
+
+        return visual_prompt_list
+
+    def metric(self,logits,label):
+        ce_loss = F.cross_entropy(logits, label, reduction='none')
+        final_loss = 0
+        if self.loss_type == "ce":
+            final_loss = torch.sum(ce_loss)
+        elif self.loss_type == "focal":
+            gamma = 2
+            pt = torch.exp(-ce_loss)
+            focal_loss = (1 - pt) ** gamma * ce_loss
+            final_loss = torch.sum(focal_loss)
+        return final_loss # Trả về tổng loss cho batch
+
+    # Bỏ @torch.no_grad() khỏi eval nếu bạn muốn thực hiện adversarial training
+    # Nếu chỉ muốn đánh giá robustness sau khi tối ưu, giữ nguyên @torch.no_grad() ở đây
+    @torch.no_grad()
+    def eval(self,prompt_zip):
+        # ... (Phần còn lại của eval giữ nguyên) ...
+        prompt_text,prompt_image = prompt_zip[0],prompt_zip[1]
+        self.num_call += 1
+        loss = 0
+        if self.parallel:
+            loss = [0]*self.popsize
+        text_features = self.text_encoder(prompt_text) # if parallel, text_features.shape = [n_cls * popsize, *, *]
+        text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+        for batch in self.train_loader:
+            image,label = self.parse_batch(batch)
+            image_features = self.image_encoder(image,prompt_image)
+            image_features = image_features / image_features.norm(dim=-1,keepdim=True)
+            logit_scale = self.logit_scale.exp()
+            if self.parallel:
+                B = int(image_features.shape[0]/self.popsize)
+                for i in range(self.popsize):
+                    start_text = i * self.n_cls
+                    start_image = i * B
+                    tmp_text_features = text_features[start_text:start_text+self.n_cls]
+                    tmp_image_features = image_features[start_image:start_image+B]
+                    tmp_logits =  logit_scale*tmp_image_features@tmp_text_features.t()
+                    # Sử dụng reduction='sum' trong metric hoặc sum ở đây
+                    loss[i]+=self.metric(tmp_logits,label) # metric trả về sum loss
+            else:
+                logits = logit_scale*image_features@text_features.t()
+                # Sử dụng reduction='sum' trong metric hoặc sum ở đây
+                loss +=self.metric(logits,label) # metric trả về sum loss
+
+        epoch_min_loss = None
+        if self.parallel:
+            loss = [x/len(self.train_data) for x in loss]
+            epoch_min_loss = min(loss)
+        else:
+            loss /= len(self.train_data)
+            epoch_min_loss = loss # Gán loss trực tiếp
+
+        # Cập nhật min_loss và best_prompt
+        if self.min_loss is None or epoch_min_loss < self.min_loss:
+             self.min_loss = epoch_min_loss
+             if self.parallel:
+                 index = loss.index(epoch_min_loss)
+                 # Lưu trữ bản sao sâu để tránh thay đổi không mong muốn
+                 self.best_prompt_text = copy.deepcopy(prompt_text[index])
+                 self.best_prompt_image = copy.deepcopy(prompt_image[index])
+             else:
+                 self.best_prompt_text = copy.deepcopy(prompt_text)
+                 self.best_prompt_image = copy.deepcopy(prompt_image)
 
 
-end_time = time.time()
-print(f"Total optimization time: {end_time - start_time:.2f} seconds")
+        if self.num_call % self.test_every == 0:
+            # Gọi test để lấy cả clean và adv accuracy
+            clean_acc, adv_acc = self.test(attack=True)
+            self.acc.append(clean_acc.item()) # Lưu clean accuracy
+            # Cập nhật best_accuracy dựa trên clean accuracy
+            if clean_acc > self.best_accuracy:
+                self.best_accuracy = clean_acc.item()
+                print(f"*** New Best Clean Accuracy: {self.best_accuracy:.4f} ***")
 
-# --- Đánh giá cuối cùng sau khi tối ưu xong ---
-print("\n--- Final Evaluation ---")
-# Gọi test(attack=True) để lấy cả clean và adversarial accuracy cuối cùng
-final_clean_acc, final_adv_acc = prompt_clip.test(attack=args.pgd_test)
+            # In thêm adv_acc
+            print(f"Adversarial Accuracy (PGD-{self.pgd_steps}, eps={self.pgd_eps:.4f}): {adv_acc:.4f}")
 
-print(f"Final Best Clean Accuracy: {final_clean_acc.item():.4f}")
-if args.pgd_test and final_adv_acc is not None:
-    print(f"Final Adversarial Accuracy (PGD-{prompt_clip.pgd_steps}, eps={prompt_clip.pgd_eps:.4f}): {final_adv_acc.item():.4f}")
-elif args.pgd_test:
-    print("Adversarial test requested but result is None.")
+            #---------------save_results-----------------------------------
+            output_dir = os.path.join(self.output_dir,self.task_name)
 
-# Lưu lại kết quả cuối cùng một lần nữa (cập nhật final_adv_acc)
-output_dir = os.path.join(prompt_clip.output_dir, prompt_clip.task_name)
-fname = "{}_{}_{}.pth".format(prompt_clip.task_name, prompt_clip.opt_name, prompt_clip.backbone.replace("/","-"))
-content = {"task_name":prompt_clip.task_name,"opt_name":prompt_clip.opt_name,"backbone":prompt_clip.backbone,
-           "best_clean_accuracy":prompt_clip.best_accuracy, # Best clean acc trong quá trình train
-           "final_clean_accuracy": final_clean_acc.item(), # Clean acc cuối cùng
-           "clean_acc_history":prompt_clip.acc,
-           "best_prompt_text":prompt_clip.best_prompt_text,
-           "best_prompt_image":prompt_clip.best_prompt_image,
-           "loss_history":prompt_clip.loss,"num_call":prompt_clip.num_call,
-           "Linear_L":prompt_clip.linear_L.state_dict(),"Linear_V":prompt_clip.linear_V.state_dict(),
-           "final_adv_acc": final_adv_acc.item() if final_adv_acc is not None else None, # Adv acc cuối cùng
-           "pgd_eps": prompt_clip.pgd_eps,
-           "pgd_alpha": prompt_clip.pgd_alpha,
-           "pgd_steps": prompt_clip.pgd_steps
-           }
-Analysis_Util.save_results(content,output_dir,fname)
-print(f"Final results saved to {os.path.join(output_dir, fname)}")
+            fname = "{}_{}_{}.pth".format(self.task_name, self.opt_name, self.backbone.replace("/","-"))
 
-# pass # Không cần thiết
+            content = {"task_name":self.task_name,"opt_name":self.opt_name,"backbone":self.backbone,
+                       "best_clean_accuracy":self.best_accuracy, # Đổi tên cho rõ ràng
+                       "clean_acc_history":self.acc, # Đổi tên cho rõ ràng
+                       "best_prompt_text":self.best_prompt_text,
+                       "best_prompt_image":self.best_prompt_image,
+                       "loss_history":self.loss,"num_call":self.num_call, # Đổi tên cho rõ ràng
+                       "Linear_L":self.linear_L.state_dict(),"Linear_V":self.linear_V.state_dict(),
+                       # Có thể lưu thêm kết quả adversarial cuối cùng nếu muốn
+                       "final_adv_acc": adv_acc.item() if adv_acc is not None else None
+                       }
+            Analysis_Util.save_results(content,output_dir,fname)
+            # ---------------save_results-----------------------------------
+        return loss
+
+    # Bỏ @torch.no_grad() vì PGD cần tính gradient cho ảnh
+    # @torch.no_grad() -> Xóa dòng này
+    def test(self, attack=False):
+        """
+        Đánh giá mô hình trên tập test.
+        Args:
+            attack (bool): True để thực hiện tấn công PGD và trả về cả clean/adv accuracy.
+                           False để chỉ tính clean accuracy.
+        Returns:
+            torch.Tensor: Clean accuracy.
+            torch.Tensor or None: Adversarial accuracy nếu attack=True, ngược lại là None.
+        """
+        if self.best_prompt_text is None or self.best_prompt_image is None:
+             print("Warning: best_prompt not found. Testing with potentially uninitialized prompts.")
+             # Xử lý trường hợp chưa có best prompt (ví dụ: dùng prompt mặc định hoặc báo lỗi)
+             # Tạm thời trả về 0 accuracy
+             return torch.tensor(0.0), torch.tensor(0.0) if attack else None
+
+
+        correct_clean = 0.
+        correct_adv = 0.
+        total = 0.
+
+        # --- Quan trọng: Đặt lại parallel=False cho việc test ---
+        original_parallel_state = self.parallel
+        self.parallel = self.text_encoder.parallel = self.image_encoder.parallel = False
+        # ------------------------------------------------------
+
+        # Tính text features một lần vì nó không đổi trong quá trình test
+        with torch.no_grad():
+            text_features = self.text_encoder(self.best_prompt_text)
+            text_features = text_features / text_features.norm(dim=-1,keepdim=True)
+
+        for batch in self.test_loader:
+            image_clean, label = self.parse_batch(batch) # Lấy ảnh gốc và nhãn
+            label = label.to(self.device)
+            image_clean = image_clean.to(self.device) # Đảm bảo ảnh trên đúng device
+            total += label.size(0)
+
+            # --- 1. Đánh giá Clean Accuracy ---
+            with torch.no_grad():
+                image_features_clean = self.image_encoder(image_clean, self.best_prompt_image)
+                image_features_clean = image_features_clean / image_features_clean.norm(dim=-1,keepdim=True)
+                logit_scale = self.logit_scale.exp()
+                logits_clean = logit_scale * image_features_clean @ text_features.t()
+                prediction_clean = logits_clean.argmax(dim=-1)
+                correct_clean += (prediction_clean == label).float().sum()
+
+            # --- 2. Tấn công PGD và Đánh giá Adversarial Accuracy (nếu attack=True) ---
+            if attack:
+                # Bật gradient cho ảnh đầu vào
+                image_adv = image_clean.clone().detach().requires_grad_(True)
+                # Lưu ảnh gốc để chiếu lại
+                image_orig = image_clean.clone().detach()
+
+                for _ in range(self.pgd_steps):
+                    # Bật tính toán gradient trong ngữ cảnh này
+                    with torch.enable_grad():
+                        # Tính image features cho ảnh bị nhiễu
+                        image_features_adv = self.image_encoder(image_adv, self.best_prompt_image)
+                        image_features_adv = image_features_adv / image_features_adv.norm(dim=-1, keepdim=True)
+
+                        # Tính logits và loss
+                        logits_adv = logit_scale * image_features_adv @ text_features.t()
+                        loss = F.cross_entropy(logits_adv, label)
+
+                    # Tính gradient của loss theo ảnh bị nhiễu
+                    grad = torch.autograd.grad(loss, image_adv,
+                                               retain_graph=False, create_graph=False)[0]
+
+                    # Cập nhật ảnh theo PGD step
+                    image_adv = image_adv.detach() + self.pgd_alpha * grad.sign()
+                    # Chiếu nhiễu vào L-infinity ball (epsilon)
+                    delta = torch.clamp(image_adv - image_orig, min=-self.pgd_eps, max=self.pgd_eps)
+                    # Đảm bảo ảnh + nhiễu nằm trong khoảng giá trị hợp lệ (sau normalization)
+                    image_adv = torch.clamp(image_orig + delta, min=self.clip_min, max=self.clip_max).detach().requires_grad_(True)
+
+
+                # Đánh giá trên ảnh đã bị tấn công (không cần gradient nữa)
+                with torch.no_grad():
+                    image_features_adv_final = self.image_encoder(image_adv, self.best_prompt_image)
+                    image_features_adv_final = image_features_adv_final / image_features_adv_final.norm(dim=-1,keepdim=True)
+                    logits_adv_final = logit_scale * image_features_adv_final @ text_features.t()
+                    prediction_adv = logits_adv_final.argmax(dim=-1)
+                    correct_adv += (prediction_adv == label).float().sum()
+
+        # --- Khôi phục trạng thái parallel ---
+        self.parallel = self.text_encoder.parallel = self.image_encoder.parallel = original_parallel_state
+        # ------------------------------------
+
+        clean_acc = correct_clean / total
+        adv_acc = correct_adv / total if attack else None
+
+        #print(f"Clean Accuracy: {clean_acc:.4f}")
+        #if attack:
+        #    print(f"Adversarial Accuracy (PGD-{self.pgd_steps}, eps={self.pgd_eps:.4f}): {adv_acc:.4f}")
+
+        return clean_acc, adv_acc # Trả về cả hai
+
+    # ... (load_dataset và parse_batch giữ nguyên) ...
+    def load_dataset(self):
+        if self.task_name == 'CIFAR100':
+            self.dataset = CIFAR100(self.data_dir, transform=self.preprocess, download=True)
+            self.classes = self.dataset.classes
+            self.n_cls = len(self.classes)
+            self.train_data,self.train_loader = load_train_cifar100(batch_size=self.batch_size,shots=self.k_shot,preprocess=self.preprocess)
+            self.test_data, self.test_loader = load_test_cifar100(batch_size=self.batch_size, preprocess=self.preprocess)
+        elif self.task_name == 'StanfordCars':
+            self.train_data,self.train_loader = load_train(batch_size=self.batch_size,shots=self.k_shot,preprocess=self.preprocess,
+                                                           root=self.data_dir,dataset_dir="Cars_Gen")
+            self.test_data,self.test_loader = load_test(batch_size=self.batch_size,preprocess=self.preprocess,
+                                                           root=self.data_dir,dataset_dir="Cars_Gen")
+            self.classes = self.train_data.classes
+            self.n_cls = len(self.classes)
+        elif self.task_name == 'OxfordPets':
+            self.train_data,self.train_loader = load_train(batch_size=self.batch_size,shots=self.k_shot,preprocess=self.preprocess,
+                                                           root=self.data_dir,dataset_dir="OxfordPets_Gen")
+            self.test_data,self.test_loader = load_test(batch_size=self.batch_size,preprocess=self.preprocess,
+                                                           root=self.data_dir,dataset_dir="OxfordPets_Gen")
+            self.classes = self.train_data.classes
+            self.n_cls = len(self.classes)
+        elif self.task_name == 'UCF-101':
+            self.train_data,self.train_loader = load_train(batch_size=self.batch_size,shots=self.k_shot,preprocess=self.preprocess,
+                                                           root=self.data_dir,dataset_dir="UCF-101_Gen")
+            self.test_data,self.test_loader = load_test(batch_size=self.batch_size,preprocess=self.preprocess,
+                                                           root=self.data_dir,dataset_dir="UCF-101_Gen")
+            self.classes = self.train_data.classes
+            self.n_cls = len(self.classes)
+        elif self.task_name == 'DTD':
+            self.train_data,self.train_loader = load_train(batch_size=self.batch_size,shots=self.k_shot,preprocess=self.preprocess,
+                                                           root=self.data_dir,dataset_dir="DTD_Gen")
+            self.test_data,self.test_loader = load_test(batch_size=self.batch_size,preprocess=self.preprocess,
+                                                           root=self.data_dir,dataset_dir="DTD_Gen")
+            self.classes = self.train_data.classes
+            self.n_cls = len(self.classes)
+        elif self.task_name == 'EuroSAT':
+            self.train_data,self.train_loader = load_train(batch_size=self.batch_size,shots=self.k_shot,preprocess=self.preprocess,
+                                                           root=self.data_dir,dataset_dir="EuroSAT_Gen")
+            self.test_data,self.test_loader = load_test(batch_size=self.batch_size,preprocess=self.preprocess,
+                                                           root=self.data_dir,dataset_dir="EuroSAT_Gen")
+            self.classes = self.train_data.classes
+            self.n_cls = len(self.classes)
+        elif self.task_name == 'Food101':
+            self.train_data,self.train_loader = load_train(batch_size=self.batch_size,shots=self.k_shot,preprocess=self.preprocess,
+                                                           root=self.data_dir,dataset_dir="Food101_Gen")
+            self.test_data,self.test_loader = load_test(batch_size=self.batch_size,preprocess=self.preprocess,
+                                                           root=self.data_dir,dataset_dir="Food101_Gen")
+            self.classes = self.train_data.classes
+            self.n_cls = len(self.classes)
+        elif self.task_name == 'caltech101':
+            self.train_data,self.train_loader = load_train(batch_size=self.batch_size,shots=self.k_shot,preprocess=self.preprocess,
+                                                           root=self.data_dir,dataset_dir="caltech101_Gen")
+            self.test_data,self.test_loader = load_test(batch_size=self.batch_size,preprocess=self.preprocess,
+                                                           root=self.data_dir,dataset_dir="caltech101_Gen")
+            self.classes = self.train_data.classes
+            self.n_cls = len(self.classes)
+        elif self.task_name == 'SUN397':
+            self.train_data,self.train_loader = load_train(batch_size=self.batch_size,shots=self.k_shot,preprocess=self.preprocess,
+                                                           root=self.data_dir,dataset_dir="SUN397_Gen")
+            self.test_data,self.test_loader = load_test(batch_size=self.batch_size,preprocess=self.preprocess,
+                                                           root=self.data_dir,dataset_dir="SUN397_Gen")
+            self.classes = self.train_data.classes
+            self.n_cls = len(self.classes)
+        elif self.task_name == 'ImageNet':
+            self.train_data,self.train_loader = load_train(batch_size=self.batch_size,seed=self.seed,shots=self.k_shot,preprocess=self.preprocess,
+                                                           root=self.data_dir,dataset_dir="imagenet")
+            self.test_data,self.test_loader = load_test(batch_size=self.batch_size,preprocess=self.preprocess,
+                                                           root=self.data_dir,dataset_dir="imagenet")
+            self.classes = self.train_data.classes
+            self.n_cls = len(self.classes)
+
+    def parse_batch(self,batch):
+        image = batch["image"]
+        label = batch["label"]
+        # Chuyển đổi dtype và device ở đây thay vì trong test/eval để tránh lặp lại
+        image = image.to(device=self.device, dtype=self.dtype)
+        label = label.to(device=self.device)
+        if self.parallel:
+            # Lặp lại image cho parallel evaluation trong eval
+            image = image.repeat(self.popsize, 1, 1, 1)
+        return image, label
