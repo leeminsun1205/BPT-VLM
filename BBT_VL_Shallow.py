@@ -100,8 +100,7 @@ solutions = opt.ask()
 prompt_text_list= prompt_clip.generate_text_prompts([x[:intrinsic_dim_L] for x in solutions])
 prompt_image_list = prompt_clip.generate_visual_prompts([x[intrinsic_dim_L:] for x in solutions])
 prompt_clip.eval([prompt_text_list, prompt_image_list])
-print("current loss: {}".format(prompt_clip.min_loss))
-print("Best Prompt Embedding - Acc : " + str(prompt_clip.best_accuracy))
+print("Original Acc : " + str(prompt_clip.test()))
 
 print('Population Size: {}'.format(cfg["popsize"]))
 
