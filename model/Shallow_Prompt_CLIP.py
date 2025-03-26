@@ -210,8 +210,8 @@ class PromptCLIP_Shallow:
             #print("current loss: {}".format(self.min_loss))
         return loss
 
-    def test(self):
-        attack = PGD(self.model, eps=4/255, alpha=2.67/(4*255), steps=100)  # Chỉnh alpha để đúng toán tử
+    def test(self, model):
+        attack = PGD(model, eps=4/255, alpha=2.67/(4*255), steps=100)  # Chỉnh alpha để đúng toán tử
         
         correct = 0.
         parallel = self.parallel
