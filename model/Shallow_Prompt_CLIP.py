@@ -210,8 +210,8 @@ class PromptCLIP_Shallow:
             #print("current loss: {}".format(self.min_loss))
         return loss
 
-    @torch.no_grad()
-    import torch
+    # @torch.no_grad()
+    # import torch
 # Giả sử PGD đã được import, ví dụ: from torchattacks import PGD
 # Giả sử các biến model, eps, alpha, steps đã được định nghĩa ở đâu đó
 # hoặc là thuộc tính của class (ví dụ: self.model, self.eps, ...)
