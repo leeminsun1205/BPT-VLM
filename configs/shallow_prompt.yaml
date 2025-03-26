@@ -46,4 +46,7 @@ SUN397:
 ImageNet:
   budget: 14400
   test_every: 60
-
+  
+CIFAR100:
+  budget: 3600
+  test_every: 12
