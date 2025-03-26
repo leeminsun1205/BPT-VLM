@@ -92,6 +92,17 @@ elif args.opt == "shallow_lmmaes":
 # Build CLIP model
 if args.task_name in __classification__:
     prompt_clip = PromptCLIP_Shallow(args.task_name,cfg)
+text_context = prompt_clip.get_text_information()
+image_context = prompt_clip.get_image_information()
+prompt_clip.text_encoder.set_context(text_context)
+prompt_clip.image_encoder.set_context(image_context)
+solutions = opt.ask()
+prompt_text_list= prompt_clip.generate_text_prompts([x[:intrinsic_dim_L] for x in solutions])
+prompt_image_list = prompt_clip.generate_visual_prompts([x[intrinsic_dim_L:] for x in solutions])
+prompt_clip.eval([prompt_text_list, prompt_image_list])
+print("current loss: {}".format(prompt_clip.min_loss))
+print("Best Prompt Embedding - Acc : " + str(prompt_clip.best_accuracy))
+
 print('Population Size: {}'.format(cfg["popsize"]))
 
 # Black-box prompt tuning
@@ -106,7 +117,7 @@ if args.opt in __pypop__:
 else:
     if args.task_name in __classification__:
         text_context = prompt_clip.get_text_information()
-        image_context =prompt_clip.get_image_information()
+        image_context = prompt_clip.get_image_information()
         prompt_clip.text_encoder.set_context(text_context)
         prompt_clip.image_encoder.set_context(image_context)
         while not opt.stop():
