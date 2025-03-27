@@ -1,9 +1,9 @@
 import argparse
 import torch
 import torch.nn as nn
-import torchvision.datasets as datasets
-from torch.utils.data import DataLoader
-import torchvision.transforms as transforms
+# import torchvision.datasets as datasets
+# from torch.utils.data import DataLoader
+# import torchvision.transforms as transforms
 import clip
 import torchattacks
 import time
@@ -13,6 +13,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--task_name", type=str, default="CIFAR-10", help="Dataset name")
 parser.add_argument("--checkpoint", type=str, default=None, help="Path to checkpoint file")
 parser.add_argument("--caption", type=str, default=None, help="Using caption")
+parser.add_argument("--data_dir", type=str, default="./data", help="Directory to save/load dataset")
 args = parser.parse_args()
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -35,7 +36,7 @@ print("Input resolution:", model.visual.input_resolution)
 # Load dataset
 print("Loading {args.task_name} dataset...")
 
-test_dataset, test_loader, classes, NUM_CLASSES = load_test(task_name=args.task_name, batch_size=BATCH_SIZE, preprocess=preprocess)
+test_dataset, test_loader, classes, NUM_CLASSES = load_test(task_name=args.task_name, batch_size=BATCH_SIZE, preprocess=preprocess, data_dir=args.data_dir)
 print(f"Test dataset loaded with {len(test_dataset)} samples.")
 print("Processing text prompts...")
 text_features = None 
