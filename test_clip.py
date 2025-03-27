@@ -47,11 +47,11 @@ if args.checkpoint:
     print(f"Loading checkpoint: {args.checkpoint}")
     prompter = PromptLearner(clip_model=model, classnames=classes)
     loaded_prompt_data = torch.load(args.checkpoint, map_location=DEVICE)['best_prompt_text']
-    if "token_prefix" in loaded_prompt_data:
-        del loaded_prompt_data["token_prefix"]
+    # if "token_prefix" in loaded_prompt_data:
+    #     del loaded_prompt_data["token_prefix"]
 
-    if "token_suffix" in loaded_prompt_data:
-        del loaded_prompt_data["token_suffix"]
+    # if "token_suffix" in loaded_prompt_data:
+    #     del loaded_prompt_data["token_suffix"]
     prompter.loaded_prompt_data({'state':loaded_prompt_data}, strict=False)
     text_encoder = TextEncoder(model)
     prompts = prompter()
