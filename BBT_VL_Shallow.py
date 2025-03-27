@@ -10,20 +10,23 @@ from model.Shallow_Prompt_CLIP import PromptCLIP_Shallow
 import numpy as np
 import time
 
-__classification__ = ["CIFAR100","caltech101","StanfordCars","OxfordPets","UCF-101","DTD","EuroSAT",
-                      "Food101","SUN397","ImageNet", "CIFAR10"]
+__classification__ = ["CIFAR100", "caltech101", "StanfordCars", "OxfordPets", "UCF-101",
+                      "DTD", "EuroSAT", "Food101", "SUN397", "ImageNet", "CIFAR10"]
 __pypop__ = ["shallow_lmcmaes","shallow_mmes","shallow_dcem","shallow_maes"]
 __dataset__ = "/home/khoahocmaytinh2022/Desktop/MinhNhut/BPT-VLM/data"
 __output__ = "/home/khoahocmaytinh2022/Desktop/MinhNhut/BPT-VLM/results"
-# __output__ = "/home/yu/result"
-__backbone__ = "ViT-B/32"
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--task_name", default="CIFAR100", type=str)
 parser.add_argument("--opt", default="shallow_cma", type=str)
 parser.add_argument("--parallel", action='store_true', help='Whether to allow parallel evaluation')
-
-
+parser.add_argument(
+    "--backbone", 
+    default="vitb32", 
+    type=str, 
+    choices=["vitb32", "vitb16", "rn50", "vitb32_eps1", "vitb32_eps4", "rn50_eps1"]
+)
 
 args = parser.parse_args()
 assert "shallow" in args.opt, "Only shallow prompt tuning is supported in this file."
@@ -33,7 +36,7 @@ cfg["opt_name"] = args.opt
 cfg["data_dir"] = __dataset__
 cfg["output_dir"] = __output__
 cfg["opt_name"] = args.opt
-cfg["backbone"] = __backbone__
+cfg["backbone"] = args.backbone
 
 for k,v in cfg[args.task_name].items():
     cfg[k]=v

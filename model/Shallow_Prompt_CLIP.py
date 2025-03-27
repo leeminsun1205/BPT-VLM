@@ -23,7 +23,18 @@ class PromptCLIP_Shallow:
         self.seed = cfg["seed"]
         self.num_call = 0
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.model, self.preprocess = clip.load(self.backbone,device=self.device)
+        if 'eps' in cfg['backbone']:
+            self.model, self.preprocess = clip.load(self.backbone,device=self.device)
+            ckp_name += f'{cfg['backbone']}.pth.tar'
+            ckp = torch.load(os.path.join(ckp_name))
+            self.model.visual.load_state_dict(ckp['vision_encoder_state_dict'])
+        else:
+            if cfg['backbone'] == 'vitb32':
+                self.model, self.preprocess = clip.load('ViT-B/32', device=self.device)
+            elif cfg['backbone'] == 'vitb16':
+                self.model, self.preprocess = clip.load('ViT-B/16', device=self.device)
+            else:
+                self.model, self.preprocess = clip.load('RN50', device=self.device)
         self.load_dataset()
         self.loss = []
         self.acc = []
@@ -75,8 +86,6 @@ class PromptCLIP_Shallow:
         print('[Conv] mu: {} | std: {} [RandProj]  mu: {} | std: {}'.format(mu_hat, std_hat, mu, std))
         for p in self.linear_V.parameters():
             torch.nn.init.normal_(p, mu, std)
-
-
 
     def get_text_information(self,caption=None):
         # classification task - caption - None
@@ -338,9 +347,6 @@ class PromptCLIP_Shallow:
                                                            root=self.data_dir,dataset_dir="imagenet")
             self.classes = self.train_data.classes
             self.n_cls = len(self.classes)
-
-
-
 
     def parse_batch(self,batch):
         image = batch["image"]
