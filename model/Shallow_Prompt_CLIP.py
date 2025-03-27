@@ -25,7 +25,7 @@ class PromptCLIP_Shallow:
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         if 'eps' in cfg['backbone']:
             self.model, self.preprocess = clip.load(self.backbone,device=self.device)
-            ckp_name += f'{cfg['backbone']}.pth.tar'
+            ckp_name += f'{self.backbone}.pth.tar'
             ckp = torch.load(os.path.join(ckp_name))
             self.model.visual.load_state_dict(ckp['vision_encoder_state_dict'])
         else:
