@@ -27,7 +27,7 @@ model.eval()
 print(f"CLIP model '{MODEL_NAME}' loaded.")
 print("Input resolution:", model.visual.input_resolution)
 
-test_dataset = datasets.CIFAR100(root="./data", train=False, download=True, transform=preprocess)
+test_dataset = datasets.CIFAR10(root="./data", train=False, download=True, transform=preprocess)
 # Reduce num_workers if encountering issues
 test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=2)
 
