@@ -40,7 +40,7 @@ clip_model = load_clip_to_cpu()
 token_embedding = clip_model.token_embedding.weight
 print(f"Size of token embedding: {token_embedding.shape}")
 
-prompt_learner = torch.load(args.checkpoint, map_location='cuda')
+prompt_learner = torch.load(fpath, map_location='cuda')
 ctx = prompt_learner['best_prompt_text']
 ctx = ctx.float()
 print(f"Size of context: {ctx.shape}")
