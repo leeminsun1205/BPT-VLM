@@ -185,7 +185,7 @@ def load_test_data(batch_size, task_name, preprocess, data_dir):
                                                         root=data_dir, dataset_dir="caltech101_Gen")
         classes = train_data.classes
         n_cls = len(classes)
-    return test_data, test_loader, classes, n_cls
+        return test_data, test_loader, classes, n_cls
     # elif self.task_name == 'SUN397':
     #     self.train_data,self.train_loader = load_train(batch_size=self.batch_size,shots=self.k_shot,preprocess=self.preprocess,
     #                                                     root=self.data_dir,dataset_dir="SUN397_Gen")
