@@ -123,7 +123,7 @@ def get_text_information(model, classes, caption=None, device="cuda", dtype=torc
     
         return init_pattern_embedding
 
-def load_test(batch_size, task_name, preprocess, data_dir):
+def load_test_data(batch_size, task_name, preprocess, data_dir):
     if task_name == 'CIFAR100':
         dataset = CIFAR100(data_dir = './', transform=preprocess, download=True)
         classes = dataset.classes
@@ -178,7 +178,7 @@ def load_test(batch_size, task_name, preprocess, data_dir):
     #     self.n_cls = len(self.classes)
     elif task_name == 'caltech101':
         test_data, test_loader = load_test(batch_size=batch_size,preprocess=preprocess,
-                                                        root=data_dir,dataset_dir="caltech101_Gen")
+                                                        root=data_dir, dataset_dir="caltech101_Gen")
         classes = test_data.classes
         n_cls = len(classes)
     return test_data, test_loader, classes, n_cls
