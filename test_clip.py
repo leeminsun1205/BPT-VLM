@@ -34,7 +34,7 @@ print(f"CLIP model '{MODEL_NAME}' loaded .")
 print("Input resolution:", model.visual.input_resolution)
 task_name = args.task_name
 # Load dataset
-print("Loading '{task_name}' dataset...")
+print(f"Loading {task_name} dataset...")
 
 test_dataset, test_loader, classes, NUM_CLASSES = load_test_data(task_name=args.task_name, batch_size=BATCH_SIZE, preprocess=preprocess, data_dir=args.data_dir)
 print(f"Test dataset loaded with {len(test_dataset)} samples.")

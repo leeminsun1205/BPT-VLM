@@ -99,6 +99,7 @@ class TestDataset(Dataset):
         self.split_path = os.path.join(self.dataset_dir, "split.json")
         self.all_data = Util.read_split(self.split_path)
         self.all_test = self.all_data["test"]
+        self.classes = list(set([sample[2] for sample in self.all_test])) 
 #-------------------------------------------------------------------------------------------
         self.test_data_dir = os.path.join(self.dataset_dir, "test_data")
         Util.mkdir_if_missing(self.test_data_dir)
