@@ -51,8 +51,16 @@ if args.checkpoint:
     # Kiểm tra xem có best_prompt_text không
     if 'best_prompt_text' in checkpoint:
         best_prompt = checkpoint['best_prompt_text']
-        print(f"Loaded best text prompt from checkpoint: {best_prompt}")
-        text_tokens = clip.tokenize([best_prompt]).to(DEVICE)
+        if isinstance(best_prompt, torch.Tensor):
+            print("Loaded best prompt as tensor, skipping tokenization.")
+            text_features = best_prompt.to(DEVICE)
+        else:
+            print(f"Loaded best prompt as text: {best_prompt}")
+            text_tokens = clip.tokenize([best_prompt]).to(DEVICE)
+            with torch.no_grad():
+                text_features = model.encode_text(text_tokens)
+                text_features /= text_features.norm(dim=-1, keepdim=True)
+
     elif 'best_prompt_image' in checkpoint:
         best_prompt = checkpoint['best_prompt_image']
         print(f"Loaded best image prompt from checkpoint (not directly usable as text).")
