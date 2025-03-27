@@ -53,7 +53,7 @@ if args.checkpoint:
         best_prompt = checkpoint['best_prompt_text']
         if isinstance(best_prompt, torch.Tensor):
             print("Loaded best prompt as tensor, skipping tokenization.")
-            text_features = best_prompt.to(DEVICE)
+            text_features = best_prompt.to(DEVICE).float()
         else:
             print(f"Loaded best prompt as text: {best_prompt}")
             text_tokens = clip.tokenize([best_prompt]).to(DEVICE)
@@ -71,7 +71,7 @@ elif args.prompt:
         text_features = model.encode_text(text_tokens)
         text_features /= text_features.norm(dim=-1, keepdim=True)
     print("Text features encoded and normalized.")
-    
+
 else:
     # Dùng tên lớp mặc định làm prompt
     text_descriptions = [f"{class_name}" for class_name in cifar10_classes]
