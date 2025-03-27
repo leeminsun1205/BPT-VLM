@@ -192,14 +192,22 @@ class PromptCLIP_Shallow:
         #num_call = self.num_call*self.popsize if self.parallel else self.num_call
 
 
-#         torch.save({
-#     'model_state_dict': prompt_clip.state_dict(),
-#     'optimizer_state_dict': opt,  # Nếu opt có trạng thái lưu được
-#     'accuracy': acc,
-#     'best_prompt': prompt_clip.best_prompt,  # Nếu bạn có prompt tối ưu
-# }, f"{cfg['output_dir']}/{args.task_name}_{args.opt}_checkpoint.pth")
-#             ---------------save_results-----------------------------------
-#         print("current loss: {}".format(self.min_loss))
+#       if self.num_call % self.test_every == 0:
+        acc = self.test()
+        self.acc.append(acc)
+        self.best_accuracy = max(acc,self.best_accuracy)
+        #---------------save_results-----------------------------------
+        output_dir = os.path.join(self.output_dir,self.task_name)
+
+        fname = "{}_{}_{}.pth".format(self.task_name, self.opt_name, self.backbone.replace("/","-"))
+        # fname = "{}_intrinsic_{}.pth".format(self.task_name, self.intrinsic_dim_L)
+
+        content = {"task_name":self.task_name,"opt_name":self.opt_name,"backbone":self.backbone,"best_accuracy":self.best_accuracy,"acc":self.acc,
+                    "best_prompt_text":self.best_prompt_text,"best_prompt_image":self.best_prompt_image,"loss":self.loss,"num_call":self.num_call,
+                    "Linear_L":self.linear_L.state_dict(),"Linear_V":self.linear_V.state_dict()}
+        Analysis_Util.save_results(content,output_dir,fname)
+        # ---------------save_results-----------------------------------
+        #print("current loss: {}".format(self.min_loss))
         return loss
 
     @torch.no_grad()
