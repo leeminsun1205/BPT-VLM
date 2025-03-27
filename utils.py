@@ -3,9 +3,9 @@ import clip
 import torch
 from clip.simple_tokenizer import SimpleTokenizer as _Tokenizer
 from torchvision.datasets import CIFAR100, CIFAR10
-from dataset.cifar100 import load_test_cifar100
-from dataset.cifar10 import load_test_cifar10
-from dataset.general import load_test
+from dataset.cifar100 import load_train_cifar100, load_test_cifar100
+from dataset.cifar10 import load_train_cifar10, load_test_cifar10
+from dataset.general import load_train, load_test
 _tokenizer = _Tokenizer()
 
 class ClipCustom(nn.Module):
@@ -178,9 +178,11 @@ def load_test_data(batch_size, task_name, preprocess, data_dir):
     #     self.classes = self.train_data.classes
     #     self.n_cls = len(self.classes)
     elif task_name == 'caltech101':
+        train_data, train_loader = load_train(batch_size = batch_size,shots=16,preprocess=preprocess,
+                                                           root=data_dir,dataset_dir="caltech101_Gen")
         test_data, test_loader = load_test(batch_size=batch_size,preprocess=preprocess,
                                                         root=data_dir, dataset_dir="caltech101_Gen")
-        classes = test_data.classes
+        classes = train_loader.classes
         n_cls = len(classes)
     return test_data, test_loader, classes, n_cls
     # elif self.task_name == 'SUN397':
