@@ -8,7 +8,7 @@ from clip import clip
 
 def load_clip_to_cpu(backbone_name="RN50"):
     url = clip._MODELS[backbone_name]
-    model_path = clip._download(url)
+    model_path = clip._download(url, root="./")
 
     try:
         # loading JIT archive
