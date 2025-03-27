@@ -125,6 +125,7 @@ def get_text_information(model, classes, caption=None, device="cuda", dtype=torc
         return init_pattern_embedding
 
 def load_test_data(batch_size, task_name, preprocess, data_dir):
+    print(task_name)
     if task_name == 'CIFAR100':
         dataset = CIFAR100(data_dir = './', transform=preprocess, download=True)
         classes = dataset.classes
