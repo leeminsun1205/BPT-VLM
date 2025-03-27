@@ -128,12 +128,12 @@ def load_test_data(batch_size, task_name, preprocess, data_dir):
     print(task_name)
     test_data, test_loader, classes, n_cls = None, None, None, None
     if task_name == 'CIFAR100':
-        dataset = CIFAR100(data_dir = './', transform=preprocess, download=True)
+        dataset = CIFAR100('./', transform=preprocess, download=True)
         classes = dataset.classes
         n_cls = len(classes)
         test_data, test_loader = load_test_cifar100(batch_size=batch_size, preprocess=preprocess)
     elif task_name == 'CIFAR10': 
-        dataset = CIFAR10(data_dir = './', transform=preprocess, download=True)
+        dataset = CIFAR10('./', transform=preprocess, download=True)
         classes = dataset.classes
         n_cls = len(classes)
         test_data, test_loader = load_test_cifar10(batch_size=batch_size, preprocess=preprocess)
