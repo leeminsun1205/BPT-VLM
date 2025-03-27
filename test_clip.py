@@ -94,30 +94,48 @@ atk = torchattacks.PGD(clip_wrapper, eps=PGD_EPS, alpha=PGD_ALPHA, steps=PGD_STE
 print(f"PGD Attack defined: eps={PGD_EPS}, alpha={PGD_ALPHA}, steps={PGD_STEPS}")
 print("Note: Attack operates on CLIP's preprocessed (normalized) images.")
 
-# --- 7. Vòng lặp Đánh giá ---
 clean_correct = 0
 robust_correct = 0
 total = 0
 
+# Lấy dtype mong đợi từ mô hình
+try:
+    expected_dtype = model.dtype
+except AttributeError:
+    # Nếu model không có thuộc tính dtype (phiên bản cũ?), đoán dựa trên device
+    if DEVICE == "cuda":
+        print("Warning: model.dtype not found. Assuming float16 (Half) on CUDA.")
+        expected_dtype = torch.float16
+    else:
+        print("Warning: model.dtype not found. Assuming float32 (Float) on CPU.")
+        expected_dtype = torch.float32
+
 for i, (images, labels) in enumerate(tqdm(test_loader, desc="Evaluating")):
     images, labels = images.to(DEVICE), labels.to(DEVICE)
+
+    # --- !!! SỬA LỖI: Ép kiểu images thành dtype của model !!! ---
+    images = images.to(dtype=expected_dtype)
+    # ---------------------------------------------------------
+
     batch_size_current = images.shape[0]
 
     # --- 7a. Đánh giá trên ảnh sạch (Clean Accuracy - acc) ---
     with torch.no_grad():
         # Sử dụng wrapper để lấy logits (similarities)
-        logits_clean = clip_wrapper(images)
+        logits_clean = clip_wrapper(images) # Bây giờ images đã đúng dtype
         predictions_clean = logits_clean.argmax(dim=-1)
         clean_correct += (predictions_clean == labels).sum().item()
 
     # --- 7b. Tạo ảnh bị tấn công (Adversarial Images) ---
     # PGD cần gradient, nên không dùng torch.no_grad() ở đây
-    # atk nhận ảnh đã chuẩn hóa và trả về ảnh tấn công cũng đã chuẩn hóa
+    # atk nhận ảnh đã có dtype đúng và trả về ảnh tấn công
+    # torchattacks thường bảo toàn dtype đầu vào
     adv_images = atk(images, labels)
 
     # --- 7c. Đánh giá trên ảnh bị tấn công (Robust Accuracy - rob) ---
     with torch.no_grad():
-        # Sử dụng wrapper để lấy logits (similarities) cho ảnh tấn công
+        # Đảm bảo adv_images cũng đúng dtype (thường là không cần nếu atk bảo toàn)
+        # adv_images = adv_images.to(dtype=expected_dtype) # Có thể thêm dòng này nếu cần
         logits_adv = clip_wrapper(adv_images)
         predictions_adv = logits_adv.argmax(dim=-1)
         robust_correct += (predictions_adv == labels).sum().item()
