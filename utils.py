@@ -132,8 +132,8 @@ class CustomCLIP(nn.Module):
             
         for i, data in enumerate(self.test_loader, start=1):
             
-            imgs,tgts = self.parse_batch(data)
-            # imgs, tgts = imgs.cuda(), tgts.cuda()
+            imgs,tgts = data['image'],data['label']
+            imgs, tgts = imgs.cuda(), tgts.cuda()
             bs = imgs.size(0)
 
             with torch.no_grad():
@@ -165,6 +165,7 @@ class CustomCLIP(nn.Module):
         if self.task_name == 'CIFAR100':
             self.dataset = CIFAR100(self.data_dir, transform=self.preprocess, download=True)
             self.classes = self.dataset.classes
+            print(self.classes)
             self.n_cls = len(self.classes)
             # self.train_data,self.train_loader = load_train_cifar100(batch_size=self.batch_size,shots=self.k_shot,preprocess=self.preprocess)
             self.test_data, self.test_loader = load_test_cifar100(batch_size=self.batch_size, preprocess=self.preprocess)
@@ -231,14 +232,14 @@ class CustomCLIP(nn.Module):
                                                            root=self.data_dir,dataset_dir="imagenet")
             self.classes = self.train_data.classes
             self.n_cls = len(self.classes)
-    def parse_batch(self,batch):
-        image = batch["image"]
-        label = batch["label"]
-        image = image.to(device='cuda')
-        label = label.to(device='cuda')
-        # if self.parallel:
-        #     image = image.repeat(self.popsize, 1, 1, 1)
-        return image, label
+    # def parse_batch(self,batch):
+    #     image = batch["image"]
+    #     label = batch["label"]
+    #     image = image.to(device='cuda')
+    #     label = label.to(device='cuda')
+    #     # if self.parallel:
+    #     #     image = image.repeat(self.popsize, 1, 1, 1)
+    #     return image, label
 
 class AverageMeter(object):
     """Computes and stores the average and current value"""
