@@ -60,22 +60,27 @@ if args.checkpoint:
             with torch.no_grad():
                 text_features = model.encode_text(text_tokens)
                 text_features /= text_features.norm(dim=-1, keepdim=True)
-                
+
 
 elif args.prompt:
     # Sử dụng prompt tùy chỉnh do người dùng nhập vào
     print(f"Using custom prompt: {args.prompt}")
     text_tokens = clip.tokenize([args.prompt]).to(DEVICE)
 
+    with torch.no_grad():
+        text_features = model.encode_text(text_tokens)
+        text_features /= text_features.norm(dim=-1, keepdim=True)
+    print("Text features encoded and normalized.")
+    
 else:
     # Dùng tên lớp mặc định làm prompt
     text_descriptions = [f"{class_name}" for class_name in cifar10_classes]
     text_tokens = clip.tokenize(text_descriptions).to(DEVICE)
 
-with torch.no_grad():
-    text_features = model.encode_text(text_tokens)
-    text_features /= text_features.norm(dim=-1, keepdim=True)
-print("Text features encoded and normalized.")
+    with torch.no_grad():
+        text_features = model.encode_text(text_tokens)
+        text_features /= text_features.norm(dim=-1, keepdim=True)
+    print("Text features encoded and normalized.")
 
 clip_custom = ClipCustom(model, text_features).to(DEVICE)
 
