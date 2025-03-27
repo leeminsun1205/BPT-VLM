@@ -37,22 +37,27 @@ ctx = ctx.float()
 print(f"Size of context: {ctx.shape}")
 
 if ctx.dim() == 2:
+    num_ctx_tokens = ctx.shape[0]
+
     distance = torch.cdist(ctx, token_embedding)
     print(f"Size of distance matrix: {distance.shape}")
+    print("\n--- Top-k words for each context vector position ---")
     sorted_idxs = torch.argsort(distance, dim=1)
-    sorted_idxs = sorted_idxs[:, :topk]
+    sorted_idxs = sorted_idxs[:, :topk] 
 
-    list_cac_tu = []
-    for m, idxs in enumerate(sorted_idxs):
+    for m in range(num_ctx_tokens):
+        idxs = sorted_idxs[m]
         words = [tokenizer.decoder[idx.item()] for idx in idxs]
         dist = [f"{distance[m, idx].item():.4f}" for idx in idxs]
-        print(f"{m+1}: {words} {dist}")
-        list_cac_tu.append(words)  
+        print(f"Position {m+1}: {words} {dist}")
 
-    print("Visualize the top-k words")
-    # In 5 hàng gộp lại thành 1 dòng
-    for words in zip(*list_cac_tu[:5]):  # Lấy 5 hàng đầu tiên và in theo cột
-        print(" ".join(words))
+    print("\n--- Best matching sequence (closest word per position) ---")
+    best_idxs = torch.argmin(distance, dim=1) 
+    best_words_sequence = [tokenizer.decoder[idx.item()] for idx in best_idxs]
+
+    best_sentence = " ".join(best_words_sequence)
+
+    print(best_sentence)
 
 elif ctx.dim() == 3:
     raise NotImplementedError
