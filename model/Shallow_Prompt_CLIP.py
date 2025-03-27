@@ -16,6 +16,7 @@ class PromptCLIP_Shallow:
         self.data_dir = cfg["data_dir"]
         self.output_dir = cfg["output_dir"]
         self.backbone = cfg["backbone"]
+        print(self.backbone)
         self.popsize = cfg["popsize"]
         self.parallel = cfg["parallel"]
         self.batch_size = cfg["batch_size"]
@@ -25,7 +26,7 @@ class PromptCLIP_Shallow:
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         if 'eps' in cfg['backbone']:
             self.model, self.preprocess = clip.load(self.backbone,device=self.device)
-            ckp_name += f'{self.backbone}.pth.tar'
+            ckp_name = f'{self.backbone}.pth.tar'
             ckp = torch.load(os.path.join(ckp_name))
             self.model.visual.load_state_dict(ckp['vision_encoder_state_dict'])
         else:
