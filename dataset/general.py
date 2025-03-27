@@ -22,7 +22,7 @@ class FewshotDataset(Dataset):
         Util.mkdir_if_missing(self.split_fewshot_dir)
 
         self.shots = args["shots"]
-        self.prepocess = args["preprocess"]
+        self.preprocess = args["preprocess"]
         self.all_data = Util.read_split(self.split_path)
 
 
@@ -74,7 +74,7 @@ class FewshotDataset(Dataset):
                 tmp = self.all_train[index]
                 image_path = os.path.join(self.image_dir,tmp[0])
                 # convert img to compatible tensors
-                tmp_data = [self.prepocess(Image.open(image_path)),tmp[1]]
+                tmp_data = [self.prerpocess(Image.open(image_path)),tmp[1]]
                 new_train_data.append(tmp_data)
                 train_shot_count[label] += 1
         classes = [classes_dict[i] for i in range(len(classes_dict))]
@@ -91,7 +91,7 @@ def load_train(batch_size=1,seed=42,shots=16,preprocess=None,root=None,dataset_d
 
 class TestDataset(Dataset):
     def __init__(self, args):
-        self.prepocess = args["preprocess"]
+        self.preprocess = args["preprocess"]
         self.root = args["root"]
         self.dataset_dir = args["dataset_dir"]
         self.dataset_dir = os.path.join(self.root,self.dataset_dir)
@@ -112,7 +112,7 @@ class TestDataset(Dataset):
         else:
             for tmp in self.all_test:
                 image_path = os.path.join(self.image_dir, tmp[0])
-                tmp[0] = self.prepocess(Image.open(image_path))
+                tmp[0] = self.preprocess(Image.open(image_path))
             print(f"Saving preprocessed test data to {preprocessed}")
             content = self.all_test
             with open(preprocessed, "wb") as file:
