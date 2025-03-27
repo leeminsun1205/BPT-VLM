@@ -60,16 +60,7 @@ if args.checkpoint:
             with torch.no_grad():
                 text_features = model.encode_text(text_tokens)
                 text_features /= text_features.norm(dim=-1, keepdim=True)
-
-    elif 'best_prompt_image' in checkpoint:
-        best_prompt = checkpoint['best_prompt_image']
-        print(f"Loaded best image prompt from checkpoint (not directly usable as text).")
-        text_descriptions = [f"{class_name}" for class_name in cifar10_classes]
-        text_tokens = clip.tokenize(text_descriptions).to(DEVICE)
-    else:
-        print("No best prompt found in checkpoint. Using default prompts.")
-        text_descriptions = [f"{class_name}" for class_name in cifar10_classes]
-        text_tokens = clip.tokenize(text_descriptions).to(DEVICE)
+                
 
 elif args.prompt:
     # Sử dụng prompt tùy chỉnh do người dùng nhập vào
