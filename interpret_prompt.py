@@ -41,16 +41,18 @@ if ctx.dim() == 2:
     print(f"Size of distance matrix: {distance.shape}")
     sorted_idxs = torch.argsort(distance, dim=1)
     sorted_idxs = sorted_idxs[:, :topk]
-    
-    formatted_lines = []
+
+    list_cac_tu = []
     for m, idxs in enumerate(sorted_idxs):
         words = [tokenizer.decoder[idx.item()] for idx in idxs]
         dist = [f"{distance[m, idx].item():.4f}" for idx in idxs]
         print(f"{m+1}: {words} {dist}")
-        formatted_lines.append(f"{m+1}: {' '.join(words)}")
+        list_cac_tu.append(words)  
+
     print("Visualize the top-k words")
-    # In thêm 5 dòng liền mạch nhau
-    print("\n".join(formatted_lines[:5]))
+    # In 5 hàng gộp lại thành 1 dòng
+    for words in zip(*list_cac_tu[:5]):  # Lấy 5 hàng đầu tiên và in theo cột
+        print(" ".join(words))
 
 elif ctx.dim() == 3:
     raise NotImplementedError
