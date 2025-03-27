@@ -7,12 +7,11 @@ import torchvision.transforms as transforms
 import clip
 import torchattacks
 import time
-
-from utils import ClipCustom
+from utils import *
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--checkpoint", type=str, default=None, help="Path to checkpoint file")
-parser.add_argument("--prompt", type=str, default=None, help="Custom prompt (WARNING: Likely incompatible with PGD evaluation if used)")
+parser.add_argument("--caption", type=str, default=None, help="Using caption")
 args = parser.parse_args()
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -37,66 +36,32 @@ print("Loading CIFAR-10 dataset...")
 test_dataset = datasets.CIFAR10(root="./data", train=False, download=True, transform=preprocess)
 test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=2)
 
-cifar10_classes = test_dataset.classes
-NUM_CLASSES = len(cifar10_classes)
+classes = test_dataset.classes
+NUM_CLASSES = len(classes)
 print(f"CIFAR-10 dataset loaded. Number of classes: {NUM_CLASSES}")
 
 print("Processing text prompts...")
 text_features = None 
 
-def get_default_text_features(clip_model, class_names, device):
-    print("Generating text features using default class name prompts...")
-    text_descriptions = [f"{class_name}" for class_name in class_names]
-    text_tokens = clip.tokenize(text_descriptions).to(device)
-    with torch.no_grad():
-        features = clip_model.encode_text(text_tokens)
-        features /= features.norm(dim=-1, keepdim=True)
-    print(f"Generated default text features with shape: {features.shape}")
-    return features.float()
-
 if args.checkpoint:
     print(f"Loading checkpoint: {args.checkpoint}")
-    checkpoint = torch.load(args.checkpoint, map_location=DEVICE)
+    prompter = PromptLearner(model=model, classes=classes, device=DEVICE)
+    loaded_prompt_data = torch.load(args.checkpoint, map_location=DEVICE)['best_prompt_text']
+    prompter.load_state_dict(loaded_prompt_data, strict=False)
+    text_encoder = TextEncoder(model)
+    prompts = prompter()
+    text_features = text_encoder(prompts, prompter.tokenized_prompts)
+    text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+    print(f"Loaded 'best_prompt_text' as tensor with shape: {loaded_prompt_data.shape}")
 
-    if 'best_prompt_text' in checkpoint:
-        loaded_prompt_data = checkpoint['best_prompt_text']
 
-        if isinstance(loaded_prompt_data, torch.Tensor):
-            print(f"Loaded 'best_prompt_text' as tensor with shape: {loaded_prompt_data.shape}")
-            # KIỂM TRA SHAPE!
-            if loaded_prompt_data.shape[0] == NUM_CLASSES:
-                print("Shape matches number of classes. Using loaded text features.")
-                text_features = loaded_prompt_data.to(device=DEVICE).float() # Đảm bảo đúng device và dtype
-            else:
-                print(f"WARNING: Loaded tensor shape {loaded_prompt_data.shape} does not match number of classes ({NUM_CLASSES}).")
-                print("Falling back to default class name prompts for evaluation.")
-                text_features = get_default_text_features(model, cifar10_classes, DEVICE)
-        elif isinstance(loaded_prompt_data, str):
-            print(f"WARNING: Loaded 'best_prompt_text' is a string: '{loaded_prompt_data}'.")
-            print("Single string prompt is incompatible with multi-class PGD evaluation.")
-            print("Falling back to default class name prompts.")
-            text_features = get_default_text_features(model, cifar10_classes, DEVICE)
-        else:
-            print("WARNING: 'best_prompt_text' in checkpoint has unexpected format.")
-            print("Falling back to default class name prompts.")
-            text_features = get_default_text_features(model, cifar10_classes, DEVICE)
-    else:
-        print("Warning: 'best_prompt_text' not found in checkpoint.")
-        print("Falling back to default class name prompts.")
-        text_features = get_default_text_features(model, cifar10_classes, DEVICE)
-
-elif args.prompt:
-    print(f"WARNING: Using single custom prompt '{args.prompt}' from command line.")
-    print("Single custom prompt is incompatible with multi-class PGD evaluation.")
-    print("Falling back to default class name prompts.")
-    text_features = get_default_text_features(model, cifar10_classes, DEVICE)
+elif args.caption:
+    print(f"Using single caption '{args.caption}' from command line.")
+    text_features = get_text_information(model=model, caption = args.caption, classes=classes, device=DEVICE)
 
 else:
-    print("No checkpoint or custom prompt specified.")
-    text_features = get_default_text_features(model, cifar10_classes, DEVICE)
-
-if text_features is None or text_features.shape[0] != NUM_CLASSES:
-     raise ValueError(f"Failed to obtain valid text features for {NUM_CLASSES} classes. Final shape: {text_features.shape if text_features is not None else 'None'}")
+    print("No checkpoint or caption specified.")
+    text_features = get_text_information(model=model, classes=classes, device=DEVICE)
 
 print(f"Using final text features with shape: {text_features.shape}")
 
