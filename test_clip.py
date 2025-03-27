@@ -43,13 +43,21 @@ print(f"CIFAR-10 dataset loaded. Number of classes: {len(cifar10_classes)}")
 if args.checkpoint:
     # Load checkpoint từ file
     checkpoint = torch.load(args.checkpoint, map_location=DEVICE)
-    prompt_clip = ClipCustom(model, None).to(DEVICE)
-    prompt_clip.load_state_dict(checkpoint['model_state_dict'])
+    
+    print("Checkpoint keys:", checkpoint.keys())  # Kiểm tra các key có trong checkpoint
 
-    if 'best_prompt' in checkpoint:
-        best_prompt = checkpoint['best_prompt']
-        print(f"Loaded best prompt from checkpoint: {best_prompt}")
-        text_tokens = best_prompt.to(DEVICE)
+    prompt_clip = ClipCustom(model, None).to(DEVICE)
+
+    # Kiểm tra xem có best_prompt_text không
+    if 'best_prompt_text' in checkpoint:
+        best_prompt = checkpoint['best_prompt_text']
+        print(f"Loaded best text prompt from checkpoint: {best_prompt}")
+        text_tokens = clip.tokenize([best_prompt]).to(DEVICE)
+    elif 'best_prompt_image' in checkpoint:
+        best_prompt = checkpoint['best_prompt_image']
+        print(f"Loaded best image prompt from checkpoint (not directly usable as text).")
+        text_descriptions = [f"{class_name}" for class_name in cifar10_classes]
+        text_tokens = clip.tokenize(text_descriptions).to(DEVICE)
     else:
         print("No best prompt found in checkpoint. Using default prompts.")
         text_descriptions = [f"{class_name}" for class_name in cifar10_classes]

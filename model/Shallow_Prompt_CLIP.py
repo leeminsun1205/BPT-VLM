@@ -192,14 +192,14 @@ class PromptCLIP_Shallow:
         #num_call = self.num_call*self.popsize if self.parallel else self.num_call
 
 
-        torch.save({
-    'model_state_dict': prompt_clip.state_dict(),
-    'optimizer_state_dict': opt,  # Nếu opt có trạng thái lưu được
-    'accuracy': acc,
-    'best_prompt': prompt_clip.best_prompt,  # Nếu bạn có prompt tối ưu
-}, f"{cfg['output_dir']}/{args.task_name}_{args.opt}_checkpoint.pth")
-            # ---------------save_results-----------------------------------
-            #print("current loss: {}".format(self.min_loss))
+#         torch.save({
+#     'model_state_dict': prompt_clip.state_dict(),
+#     'optimizer_state_dict': opt,  # Nếu opt có trạng thái lưu được
+#     'accuracy': acc,
+#     'best_prompt': prompt_clip.best_prompt,  # Nếu bạn có prompt tối ưu
+# }, f"{cfg['output_dir']}/{args.task_name}_{args.opt}_checkpoint.pth")
+#             ---------------save_results-----------------------------------
+#         print("current loss: {}".format(self.min_loss))
         return loss
 
     @torch.no_grad()
