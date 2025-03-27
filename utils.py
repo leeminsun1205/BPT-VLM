@@ -168,7 +168,6 @@ class CustomCLIP(nn.Module):
             self.n_cls = len(self.classes)
             # self.train_data,self.train_loader = load_train_cifar100(batch_size=self.batch_size,shots=self.k_shot,preprocess=self.preprocess)
             self.test_data, self.test_loader = load_test_cifar100(batch_size=self.batch_size, preprocess=self.preprocess)
-            print(self.test_loader)
         elif self.task_name == 'StanfordCars':
             self.train_data,self.train_loader = load_train(batch_size=self.batch_size,shots=self.k_shot,preprocess=self.preprocess,
                                                            root=self.data_dir,dataset_dir="Cars_Gen")
