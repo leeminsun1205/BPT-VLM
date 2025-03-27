@@ -10,6 +10,7 @@ import time
 from utils import *
 
 parser = argparse.ArgumentParser()
+parser.add_argument("--task_name", type=str, default="CIFAR-10", help="Dataset name")
 parser.add_argument("--checkpoint", type=str, default=None, help="Path to checkpoint file")
 parser.add_argument("--caption", type=str, default=None, help="Using caption")
 args = parser.parse_args()
@@ -32,14 +33,10 @@ print(f"CLIP model '{MODEL_NAME}' loaded .")
 print("Input resolution:", model.visual.input_resolution)
 
 # Load dataset
-print("Loading CIFAR-10 dataset...")
-test_dataset = datasets.CIFAR10(root="./data", train=False, download=True, transform=preprocess)
-test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=2)
+print("Loading {args.task_name} dataset...")
 
-classes = test_dataset.classes
-NUM_CLASSES = len(classes)
-print(f"CIFAR-10 dataset loaded. Number of classes: {NUM_CLASSES}")
-
+test_dataset, test_loader, classes, NUM_CLASSES = load_test(task_name=args.task_name, batch_size=BATCH_SIZE, preprocess=preprocess)
+print(f"Test dataset loaded with {len(test_dataset)} samples.")
 print("Processing text prompts...")
 text_features = None 
 

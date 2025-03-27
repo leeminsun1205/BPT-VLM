@@ -2,6 +2,9 @@ import torch.nn as nn
 import clip
 import torch
 from clip.simple_tokenizer import SimpleTokenizer as _Tokenizer
+from torchvision.datasets import CIFAR100, CIFAR10
+from dataset.cifar100 import load_train_cifar100, load_test_cifar100
+from dataset.cifar10 import load_train_cifar10, load_test_cifar10
 _tokenizer = _Tokenizer()
 
 class ClipCustom(nn.Module):
@@ -119,3 +122,77 @@ def get_text_information(model, classes, caption=None, device="cuda", dtype=torc
                 init_pattern_embedding = model.token_embedding(tokenized_pattern_prompts).type(dtype)
     
         return init_pattern_embedding
+
+def load_test(batch_size, task_name, preprocess, data_dir):
+    if task_name == 'CIFAR100':
+        dataset = CIFAR100(data_dir = './', transform=preprocess, download=True)
+        classes = dataset.classes
+        n_cls = len(classes)
+        test_data, test_loader = load_test_cifar100(batch_size=batch_size, preprocess=preprocess)
+    elif task_name == 'CIFAR10': 
+        dataset = CIFAR10(data_dir = './', transform=preprocess, download=True)
+        classes = dataset.classes
+        n_cls = len(classes)
+        test_data, test_loader = load_test_cifar10(batch_size=batch_size, preprocess=preprocess)
+    # elif  self.task_name == 'StanfordCars':
+    #     self.train_data,self.train_loader = load_train(batch_size=self.batch_size,shots=self.k_shot,preprocess=self.preprocess,
+    #                                                     root=self.data_dir,dataset_dir="Cars_Gen")
+    #     self.test_data,self.test_loader = load_test(batch_size=self.batch_size,preprocess=self.preprocess,
+    #                                                     root=self.data_dir,dataset_dir="Cars_Gen")
+    #     self.classes = self.train_data.classes
+    #     self.n_cls = len(self.classes)
+    # elif self.task_name == 'OxfordPets':
+    #     self.train_data,self.train_loader = load_train(batch_size=self.batch_size,shots=self.k_shot,preprocess=self.preprocess,
+    #                                                     root=self.data_dir,dataset_dir="OxfordPets_Gen")
+    #     self.test_data,self.test_loader = load_test(batch_size=self.batch_size,preprocess=self.preprocess,
+    #                                                     root=self.data_dir,dataset_dir="OxfordPets_Gen")
+    #     self.classes = self.train_data.classes
+    #     self.n_cls = len(self.classes)
+    # elif self.task_name == 'UCF-101':
+    #     self.train_data,self.train_loader = load_train(batch_size=self.batch_size,shots=self.k_shot,preprocess=self.preprocess,
+    #                                                     root=self.data_dir,dataset_dir="UCF-101_Gen")
+    #     self.test_data,self.test_loader = load_test(batch_size=self.batch_size,preprocess=self.preprocess,
+    #                                                     root=self.data_dir,dataset_dir="UCF-101_Gen")
+    #     self.classes = self.train_data.classes
+    #     self.n_cls = len(self.classes)
+    # elif self.task_name == 'DTD':
+    #     self.train_data,self.train_loader = load_train(batch_size=self.batch_size,shots=self.k_shot,preprocess=self.preprocess,
+    #                                                     root=self.data_dir,dataset_dir="DTD_Gen")
+    #     self.test_data,self.test_loader = load_test(batch_size=self.batch_size,preprocess=self.preprocess,
+    #                                                     root=self.data_dir,dataset_dir="DTD_Gen")
+    #     self.classes = self.train_data.classes
+    #     self.n_cls = len(self.classes)
+    # elif self.task_name == 'EuroSAT':
+    #     self.train_data,self.train_loader = load_train(batch_size=self.batch_size,shots=self.k_shot,preprocess=self.preprocess,
+    #                                                     root=self.data_dir,dataset_dir="EuroSAT_Gen")
+    #     self.test_data,self.test_loader = load_test(batch_size=self.batch_size,preprocess=self.preprocess,
+    #                                                     root=self.data_dir,dataset_dir="EuroSAT_Gen")
+    #     self.classes = self.train_data.classes
+    #     self.n_cls = len(self.classes)
+    # elif self.task_name == 'Food101':
+    #     self.train_data,self.train_loader = load_train(batch_size=self.batch_size,shots=self.k_shot,preprocess=self.preprocess,
+    #                                                     root=self.data_dir,dataset_dir="Food101_Gen")
+    #     self.test_data,self.test_loader = load_test(batch_size=self.batch_size,preprocess=self.preprocess,
+    #                                                     root=self.data_dir,dataset_dir="Food101_Gen")
+    #     self.classes = self.train_data.classes
+    #     self.n_cls = len(self.classes)
+    elif task_name == 'caltech101':
+        test_data, test_loader = load_test(batch_size=batch_size,preprocess=preprocess,
+                                                        root=data_dir,dataset_dir="caltech101_Gen")
+        classes = test_data.classes
+        n_cls = len(classes)
+    return test_data, test_loader, classes, n_cls
+    # elif self.task_name == 'SUN397':
+    #     self.train_data,self.train_loader = load_train(batch_size=self.batch_size,shots=self.k_shot,preprocess=self.preprocess,
+    #                                                     root=self.data_dir,dataset_dir="SUN397_Gen")
+    #     self.test_data,self.test_loader = load_test(batch_size=self.batch_size,preprocess=self.preprocess,
+    #                                                     root=self.data_dir,dataset_dir="SUN397_Gen")
+    #     self.classes = self.train_data.classes
+    #     self.n_cls = len(self.classes)
+    # elif self.task_name == 'ImageNet':
+    #     self.train_data,self.train_loader = load_train(batch_size=self.batch_size,seed=self.seed,shots=self.k_shot,preprocess=self.preprocess,
+    #                                                     root=self.data_dir,dataset_dir="imagenet")
+    #     self.test_data,self.test_loader = load_test(batch_size=self.batch_size,preprocess=self.preprocess,
+    #                                                     root=self.data_dir,dataset_dir="imagenet")
+    #     self.classes = self.train_data.classes
+    #     self.n_cls = len(self.classes)
