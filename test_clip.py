@@ -101,6 +101,7 @@ total = 0
 # Lấy dtype mong đợi từ mô hình
 try:
     expected_dtype = model.dtype
+    print(f"Model dtype: {expected_dtype}")
 except AttributeError:
     # Nếu model không có thuộc tính dtype (phiên bản cũ?), đoán dựa trên device
     if DEVICE == "cuda":
