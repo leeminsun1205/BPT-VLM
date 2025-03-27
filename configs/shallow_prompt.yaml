@@ -50,3 +50,7 @@ ImageNet:
 CIFAR100:
   budget: 3600
   test_every: 12
+
+CIFAR10:
+  budget: 3600
+  test_every: 12

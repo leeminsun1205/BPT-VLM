@@ -21,7 +21,6 @@ PGD_STEPS = 10
 
 model, preprocess = clip.load(MODEL_NAME, device=DEVICE)
 model = model.float()
-# model.cuda() # Not strictly necessary if device=DEVICE is cuda and model loaded there or moved by .float()
 model.eval()
 
 print(f"CLIP model '{MODEL_NAME}' loaded.")
@@ -31,11 +30,11 @@ test_dataset = datasets.CIFAR10(root="./data", train=False, download=True, trans
 # Reduce num_workers if encountering issues
 test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=2)
 
-cifar100_classes = test_dataset.classes
-print(f"CIFAR-100 dataset loaded. Number of classes: {len(cifar100_classes)}")
+cifar10_classes = test_dataset.classes
+print(f"CIFAR-100 dataset loaded. Number of classes: {len(cifar10_classes)}")
 
 # Using class names directly as prompts
-text_descriptions = [f"{class_name}" for class_name in cifar100_classes]
+text_descriptions = [f"{class_name}" for class_name in cifar10_classes]
 text_tokens = clip.tokenize(text_descriptions).to(DEVICE)
 
 with torch.no_grad():
@@ -67,9 +66,6 @@ print("Note: Attack operates on CLIP's preprocessed (normalized) images.")
 clean_correct_total = 0 # Renamed for clarity
 robust_correct_total = 0 # Renamed for clarity
 total_images = 0 # Renamed for clarity
-
-# expected_dtype = model.dtype # Not needed if model is float32 and data is float32
-# print(f"Model dtype: {expected_dtype}") # Not needed if model is float32
 
 print("\nStarting evaluation loop...")
 # Removed tqdm wrapper: for i, (images, labels) in enumerate(tqdm(test_loader, desc="Evaluating")):
@@ -106,17 +102,15 @@ for i, (images, labels) in enumerate(test_loader):
     batch_acc = 100 * batch_clean_correct / batch_size_current
     batch_rob = 100 * batch_robust_correct / batch_size_current
     batch_end_time = time.time()
-    print(f"Batch {i+1}/{len(test_loader)} | Size: {batch_size_current} | Time: {batch_end_time - batch_start_time:.2f}s | Clean Acc: {batch_acc:.2f}% | Robust Acc: {batch_rob:.2f}%")
+    if i % 10 == 0:
+        print(f"Batch {i+1}/{len(test_loader)} | Size: {batch_size_current} | Time: {batch_end_time - batch_start_time:.2f}s | Clean Acc: {batch_acc:.2f}% | Robust Acc: {batch_rob:.2f}%")
 
 
 # --- Final Results ---
-if total_images > 0:
-    accuracy_clean = 100 * clean_correct_total / total_images
-    accuracy_robust = 100 * robust_correct_total / total_images
+accuracy_clean = 100 * clean_correct_total / total_images
+accuracy_robust = 100 * robust_correct_total / total_images
 
-    print("\n--- Final Evaluation Results ---")
-    print(f"Total images evaluated: {total_images}")
-    print(f"Overall Clean Accuracy (acc): {accuracy_clean:.2f}%")
-    print(f"Overall Robust Accuracy (rob) against PGD (eps={PGD_EPS}, steps={PGD_STEPS}): {accuracy_robust:.2f}%")
-else:
-    print("\nNo images were evaluated.")
+print("\n--- Final Evaluation Results ---")
+print(f"Total images evaluated: {total_images}")
+print(f"Overall Clean Accuracy (acc): {accuracy_clean:.2f}%")
+print(f"Overall Robust Accuracy (rob) against PGD (eps={PGD_EPS}, steps={PGD_STEPS}): {accuracy_robust:.2f}%")

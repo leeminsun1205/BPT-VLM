@@ -1,7 +1,6 @@
 import torch
 import argparse
 import yaml
-import clip
 from tqdm import tqdm
 from algorithm.CMA_ES import shallow_cma
 from algorithm.LM_CMA_ES import Shallow_LMCMAES
@@ -11,13 +10,11 @@ from model.Shallow_Prompt_CLIP import PromptCLIP_Shallow
 import numpy as np
 import time
 
-from utils import *
-
 __classification__ = ["CIFAR100","caltech101","StanfordCars","OxfordPets","UCF-101","DTD","EuroSAT",
-                      "Food101","SUN397","ImageNet"]
+                      "Food101","SUN397","ImageNet", "CIFAR10"]
 __pypop__ = ["shallow_lmcmaes","shallow_mmes","shallow_dcem","shallow_maes"]
-__dataset__ = "/home/yu/dataset"
-__output__ = "/home/yu/dataset/result"
+__dataset__ = "/home/khoahocmaytinh2022/Desktop/MinhNhut/BPT-VLM/data"
+__output__ = "/home/khoahocmaytinh2022/Desktop/MinhNhut/BPT-VLM/results"
 # __output__ = "/home/yu/result"
 __backbone__ = "ViT-B/32"
 
@@ -78,6 +75,8 @@ opt_cfg = {'fitness_threshold': 1e-10,
            'n_individuals': cfg["popsize"],
            'is_restart': False}
 
+
+
 # Load algorithm
 opt = None
 if args.opt == "shallow_cma":
@@ -89,32 +88,27 @@ elif args.opt == "shallow_mmes":
 elif args.opt == "shallow_lmmaes":
     opt = Shallow_LMMAES(pro,opt_cfg)
 
-############
-model, preprocess = clip.load(__backbone__, device='cpu')
-model = CustomCLIP(model, preprocess, args.task_name, cls_prompt='{}', atk_prompt=None, cfg=cfg)
-model = model.cuda()
-model.eval()
-model.test()
-############
 
 # Build CLIP model
 if args.task_name in __classification__:
     prompt_clip = PromptCLIP_Shallow(args.task_name,cfg)
+
 # text_context = prompt_clip.get_text_information()
-# image_context = prompt_clip.get_image_information()
+# image_context =prompt_clip.get_image_information()
 # prompt_clip.text_encoder.set_context(text_context)
 # prompt_clip.image_encoder.set_context(image_context)
+# # Black-box prompt tuning
 # solutions = opt.ask()
+# #prompt_list [popsize, n_cls, embedding_dim]  tokenized_prompts [n_cls, embedding_dim]
 # prompt_text_list= prompt_clip.generate_text_prompts([x[:intrinsic_dim_L] for x in solutions])
 # prompt_image_list = prompt_clip.generate_visual_prompts([x[intrinsic_dim_L:] for x in solutions])
-# prompt_clip.eval([prompt_text_list, prompt_image_list])
-# acc_o = prompt_clip.test()
-# print("Original Acc : " + str(acc_o))
-# # print("Original Acc Adv : " + str(acc_adv_o))
+# prompt_zip = (prompt_text_list, prompt_image_list)
+# loss = prompt_clip.eval(prompt_zip)
+# print(f"Original loss: {loss}")
+# accuracy = prompt_clip.test()
+# print(f"Original accuracy: {accuracy:.4f}")
+
 print('Population Size: {}'.format(cfg["popsize"]))
-
-# Black-box prompt tuning
-
 if args.opt in __pypop__:
     if args.task_name in __classification__:
         text_context = prompt_clip.get_text_information()
@@ -125,7 +119,7 @@ if args.opt in __pypop__:
 else:
     if args.task_name in __classification__:
         text_context = prompt_clip.get_text_information()
-        image_context = prompt_clip.get_image_information()
+        image_context =prompt_clip.get_image_information()
         prompt_clip.text_encoder.set_context(text_context)
         prompt_clip.image_encoder.set_context(image_context)
         while not opt.stop():
@@ -133,6 +127,7 @@ else:
             #prompt_list [popsize, n_cls, embedding_dim]  tokenized_prompts [n_cls, embedding_dim]
             prompt_text_list= prompt_clip.generate_text_prompts([x[:intrinsic_dim_L] for x in solutions])
             prompt_image_list = prompt_clip.generate_visual_prompts([x[intrinsic_dim_L:] for x in solutions])
+       
             if cfg["parallel"]:
                 fitnesses = prompt_clip.eval([prompt_text_list, prompt_image_list])
                 fitnesses = [x.item() for x in tqdm(fitnesses,ncols=50)]
@@ -160,9 +155,6 @@ else:
                 print("current loss: {}".format(prompt_clip.min_loss))
                 print("Best Prompt Embedding - Acc : " + str(prompt_clip.best_accuracy))
             opt.tell(solutions, fitnesses)
-
-
-
 
 acc = prompt_clip.test()
 pass

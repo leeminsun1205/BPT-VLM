@@ -3,9 +3,9 @@ import torch
 from torch.nn import functional as F
 import numpy as np
 import clip
-
-from torchvision.datasets import CIFAR100
+from torchvision.datasets import CIFAR100, CIFAR10
 from dataset.cifar100 import load_train_cifar100, load_test_cifar100
+from dataset.cifar10 import load_train_cifar10, load_test_cifar10
 from model.shallow_encoder import TextEncoder,VisionEncoder
 from model.analysis_utils import Analysis_Util
 from dataset.general import load_train,load_test
@@ -27,7 +27,6 @@ class PromptCLIP_Shallow:
         self.load_dataset()
         self.loss = []
         self.acc = []
-        self.training = False
         # Text Encoder
         self.n_prompt_tokens_L = cfg["n_prompt_tokens_L"]
         self.intrinsic_dim_L = cfg["intrinsic_dim_L"]
@@ -231,7 +230,38 @@ class PromptCLIP_Shallow:
         acc = correct/len(self.test_data)
         #print("Best Prompt Embedding - Acc : "+str(acc))
         return acc
+    @torch.no_grad()
+    def test_initial_prompt(self):
+        correct = 0.
+        parallel = self.parallel
+        self.parallel=self.text_encoder.parallel = self.image_encoder.parallel = False
 
+        # Generate initial text prompts using get_text_information
+        initial_text_context = self.get_text_information()
+        initial_tokenized_text_prompts = initial_text_context["tokenized_pattern_prompts"]
+
+        # Generate initial visual prompts (using zero intrinsic vectors - keep consistent with original approach for visual)
+        initial_visual_prompts = self.generate_visual_prompts([np.zeros(self.intrinsic_dim_V)])
+        initial_visual_prompt = initial_visual_prompts[0] # Take the first one as batch size is 1 for initial test
+
+
+        for batch in self.test_loader:
+            image,label = self.parse_batch(batch)
+
+            # Use the tokenized "X X X X class" prompts as initial text prompt
+            text_features = self.text_encoder(initial_tokenized_text_prompts)
+            image_features = self.image_encoder(image, initial_visual_prompt) # Use initial visual prompt (zero vector derived)
+
+            image_features = image_features / image_features.norm(dim=-1,keepdim=True)
+            text_features = text_features / text_features.norm(dim=-1,keepdim=True)
+            logit_scale = self.logit_scale.exp()
+            logits = logit_scale*image_features@text_features.t()
+            prediction = logits.argmax(dim=-1)
+            correct += (prediction == label).float().sum()
+
+        self.parallel=self.text_encoder.parallel = self.image_encoder.parallel = parallel
+        acc = correct/len(self.test_data)
+        return acc
     def load_dataset(self):
         if self.task_name == 'CIFAR100':
             self.dataset = CIFAR100(self.data_dir, transform=self.preprocess, download=True)
@@ -239,7 +269,13 @@ class PromptCLIP_Shallow:
             self.n_cls = len(self.classes)
             self.train_data,self.train_loader = load_train_cifar100(batch_size=self.batch_size,shots=self.k_shot,preprocess=self.preprocess)
             self.test_data, self.test_loader = load_test_cifar100(batch_size=self.batch_size, preprocess=self.preprocess)
-        elif self.task_name == 'StanfordCars':
+        elif self.task_name == 'CIFAR10': 
+            self.dataset = CIFAR10(self.data_dir, transform=self.preprocess, download=True)
+            self.classes = self.dataset.classes
+            self.n_cls = len(self.classes)
+            self.train_data, self.train_loader = load_train_cifar10(batch_size=self.batch_size, shots=self.k_shot, preprocess=self.preprocess)
+            self.test_data, self.test_loader = load_test_cifar10(batch_size=self.batch_size, preprocess=self.preprocess)
+        elif  self.task_name == 'StanfordCars':
             self.train_data,self.train_loader = load_train(batch_size=self.batch_size,shots=self.k_shot,preprocess=self.preprocess,
                                                            root=self.data_dir,dataset_dir="Cars_Gen")
             self.test_data,self.test_loader = load_test(batch_size=self.batch_size,preprocess=self.preprocess,
