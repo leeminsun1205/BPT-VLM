@@ -234,10 +234,10 @@ class CustomCLIP(nn.Module):
     def parse_batch(self,batch):
         image = batch["image"]
         label = batch["label"]
-        image = image.to(device=self.device, dtype=self.dtype)
-        label = label.to(device=self.device)
-        if self.parallel:
-            image = image.repeat(self.popsize, 1, 1, 1)
+        image = image.to(device='cuda')
+        label = label.to(device='cuda')
+        # if self.parallel:
+        #     image = image.repeat(self.popsize, 1, 1, 1)
         return image, label
 
 class AverageMeter(object):
