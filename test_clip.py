@@ -1,24 +1,30 @@
+import argparse
 import torch
 import torch.nn as nn
 import torchvision.datasets as datasets
 from torch.utils.data import DataLoader
 import torchvision.transforms as transforms
 import clip
-# from tqdm import tqdm # Removed tqdm to allow clear batch printing
 import torchattacks
-import time # Added for batch timing (optional)
+import time
+from utils import ClipCustom
+
+# Xử lý đối số đầu vào
+parser = argparse.ArgumentParser()
+parser.add_argument("--checkpoint", type=str, default=None, help="Path to checkpoint file")
+parser.add_argument("--prompt", type=str, default=None, help="Custom prompt")
+args = parser.parse_args()
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"Using device: {DEVICE}")
 
 MODEL_NAME = 'ViT-B/32'
-
 BATCH_SIZE = 64
-
 PGD_EPS = 4/255
 PGD_ALPHA = PGD_EPS/4
 PGD_STEPS = 10
 
+# Load mô hình CLIP
 model, preprocess = clip.load(MODEL_NAME, device=DEVICE)
 model = model.float()
 model.eval()
@@ -26,54 +32,58 @@ model.eval()
 print(f"CLIP model '{MODEL_NAME}' loaded.")
 print("Input resolution:", model.visual.input_resolution)
 
+# Load dataset
 test_dataset = datasets.CIFAR10(root="./data", train=False, download=True, transform=preprocess)
-# Reduce num_workers if encountering issues
 test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=2)
 
 cifar10_classes = test_dataset.classes
-print(f"CIFAR-100 dataset loaded. Number of classes: {len(cifar10_classes)}")
+print(f"CIFAR-10 dataset loaded. Number of classes: {len(cifar10_classes)}")
 
-# Using class names directly as prompts
-text_descriptions = [f"{class_name}" for class_name in cifar10_classes]
-text_tokens = clip.tokenize(text_descriptions).to(DEVICE)
+# Xử lý text prompt
+if args.checkpoint:
+    # Load checkpoint từ file
+    checkpoint = torch.load(args.checkpoint, map_location=DEVICE)
+    prompt_clip = ClipCustom(model, None).to(DEVICE)
+    prompt_clip.load_state_dict(checkpoint['model_state_dict'])
+
+    if 'best_prompt' in checkpoint:
+        best_prompt = checkpoint['best_prompt']
+        print(f"Loaded best prompt from checkpoint: {best_prompt}")
+        text_tokens = best_prompt.to(DEVICE)
+    else:
+        print("No best prompt found in checkpoint. Using default prompts.")
+        text_descriptions = [f"{class_name}" for class_name in cifar10_classes]
+        text_tokens = clip.tokenize(text_descriptions).to(DEVICE)
+
+elif args.prompt:
+    # Sử dụng prompt tùy chỉnh do người dùng nhập vào
+    print(f"Using custom prompt: {args.prompt}")
+    text_tokens = clip.tokenize([args.prompt]).to(DEVICE)
+
+else:
+    # Dùng tên lớp mặc định làm prompt
+    text_descriptions = [f"{class_name}" for class_name in cifar10_classes]
+    text_tokens = clip.tokenize(text_descriptions).to(DEVICE)
 
 with torch.no_grad():
     text_features = model.encode_text(text_tokens)
     text_features /= text_features.norm(dim=-1, keepdim=True)
 print("Text features encoded and normalized.")
 
-class ClipWrapper(nn.Module):
-    def __init__(self, clip_model, text_features):
-        super().__init__()
-        self.clip_model = clip_model
-        self.text_features = text_features
-        # Ensure logit_scale is handled correctly after .float()
-        self.logit_scale = self.clip_model.logit_scale.exp()
+clip_custom = ClipCustom(model, text_features).to(DEVICE)
 
-    def forward(self, images):
-        # Model and images should both be float32 now
-        image_features = self.clip_model.encode_image(images)
-        image_features = image_features / image_features.norm(dim=-1, keepdim=True)
-        logits_per_image = self.logit_scale * image_features @ self.text_features.T
-        return logits_per_image
-
-clip_wrapper = ClipWrapper(model, text_features).to(DEVICE)
-
-atk = torchattacks.PGD(clip_wrapper, eps=PGD_EPS, alpha=PGD_ALPHA, steps=PGD_STEPS)
+atk = torchattacks.PGD(clip_custom, eps=PGD_EPS, alpha=PGD_ALPHA, steps=PGD_STEPS)
 print(f"PGD Attack defined: eps={PGD_EPS}, alpha={PGD_ALPHA}, steps={PGD_STEPS}")
 print("Note: Attack operates on CLIP's preprocessed (normalized) images.")
 
-clean_correct_total = 0 # Renamed for clarity
-robust_correct_total = 0 # Renamed for clarity
-total_images = 0 # Renamed for clarity
+clean_correct_total = 0
+robust_correct_total = 0
+total_images = 0
 
 print("\nStarting evaluation loop...")
-# Removed tqdm wrapper: for i, (images, labels) in enumerate(tqdm(test_loader, desc="Evaluating")):
 for i, (images, labels) in enumerate(test_loader):
     batch_start_time = time.time()
     images, labels = images.to(DEVICE), labels.to(DEVICE)
-    # No need to manually convert images.to(dtype) if model and dataloader use float32
-    # images = images.to(dtype=expected_dtype)
 
     batch_size_current = images.shape[0]
     batch_clean_correct = 0
@@ -81,7 +91,7 @@ for i, (images, labels) in enumerate(test_loader):
 
     # --- Clean Evaluation ---
     with torch.no_grad():
-        logits_clean = clip_wrapper(images)
+        logits_clean = clip_custom(images)
         predictions_clean = logits_clean.argmax(dim=-1)
         batch_clean_correct = (predictions_clean == labels).sum().item()
         clean_correct_total += batch_clean_correct
@@ -91,7 +101,7 @@ for i, (images, labels) in enumerate(test_loader):
 
     # --- Robust Evaluation ---
     with torch.no_grad():
-        logits_adv = clip_wrapper(adv_images)
+        logits_adv = clip_custom(adv_images)
         predictions_adv = logits_adv.argmax(dim=-1)
         batch_robust_correct = (predictions_adv == labels).sum().item()
         robust_correct_total += batch_robust_correct
@@ -105,12 +115,11 @@ for i, (images, labels) in enumerate(test_loader):
     if i % 10 == 0:
         print(f"Batch {i+1}/{len(test_loader)} | Size: {batch_size_current} | Time: {batch_end_time - batch_start_time:.2f}s | Clean Acc: {batch_acc:.2f}% | Robust Acc: {batch_rob:.2f}%")
 
-
 # --- Final Results ---
 accuracy_clean = 100 * clean_correct_total / total_images
 accuracy_robust = 100 * robust_correct_total / total_images
 
 print("\n--- Final Evaluation Results ---")
 print(f"Total images evaluated: {total_images}")
-print(f"Overall Clean Accuracy (acc): {accuracy_clean:.2f}%")
-print(f"Overall Robust Accuracy (rob) against PGD (eps={PGD_EPS}, steps={PGD_STEPS}): {accuracy_robust:.2f}%")
+print(f"Overall Clean Accuracy: {accuracy_clean:.2f}%")
+print(f"Overall Robust Accuracy against PGD (eps={PGD_EPS}, steps={PGD_STEPS}): {accuracy_robust:.2f}%")
