@@ -83,12 +83,12 @@ class PromptLearner(nn.Module):
         self.name_lens = name_lens
 
     def forward(self):
-        ctx = self.ctx
+        ctx = self.ctx.to('cuda')
         if ctx.dim() == 2:
             ctx = ctx.unsqueeze(0).expand(self.n_cls, -1, -1)
 
-        prefix = self.token_prefix
-        suffix = self.token_suffix
+        prefix = self.token_prefix.to('cuda')
+        suffix = self.token_suffix.to('cuda')
 
         prompts = torch.cat(
             [
