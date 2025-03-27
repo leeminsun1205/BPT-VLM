@@ -69,7 +69,7 @@ else:
     # text_features = text_features / text_features.norm(dim=-1, keepdim=True)
     prompt = "X X X X X X X X {}"
     prompts = torch.cat([clip.tokenize(prompt.format(c))
-                                 for c in classes])
+                                 for c in classes]).to('cuda')
     text_features = model.encode_text(prompts)
     text_features = text_features / text_features.norm(dim=-1, keepdim=True)
 print(f"Using final text features with shape: {text_features.shape}")
