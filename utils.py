@@ -131,11 +131,8 @@ class CustomCLIP(nn.Module):
         
             
         for i, data in enumerate(self.test_loader, start=1):
-            try:
-                # few-shot data loader from Dassl
-                imgs,tgts = self.parse_batch(data)
-            except:
-                imgs, tgts = data[:2]
+            
+            imgs,tgts = self.parse_batch(data)
             # imgs, tgts = imgs.cuda(), tgts.cuda()
             bs = imgs.size(0)
 
