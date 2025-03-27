@@ -93,20 +93,6 @@ elif args.opt == "shallow_lmmaes":
 if args.task_name in __classification__:
     prompt_clip = PromptCLIP_Shallow(args.task_name,cfg)
 
-# text_context = prompt_clip.get_text_information()
-# image_context =prompt_clip.get_image_information()
-# prompt_clip.text_encoder.set_context(text_context)
-# prompt_clip.image_encoder.set_context(image_context)
-# # Black-box prompt tuning
-# solutions = opt.ask()
-# #prompt_list [popsize, n_cls, embedding_dim]  tokenized_prompts [n_cls, embedding_dim]
-# prompt_text_list= prompt_clip.generate_text_prompts([x[:intrinsic_dim_L] for x in solutions])
-# prompt_image_list = prompt_clip.generate_visual_prompts([x[intrinsic_dim_L:] for x in solutions])
-# prompt_zip = (prompt_text_list, prompt_image_list)
-# loss = prompt_clip.eval(prompt_zip)
-# print(f"Original loss: {loss}")
-# accuracy = prompt_clip.test()
-# print(f"Original accuracy: {accuracy:.4f}")
 
 print('Population Size: {}'.format(cfg["popsize"]))
 if args.opt in __pypop__:

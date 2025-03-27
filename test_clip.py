@@ -7,36 +7,9 @@ import torchvision.transforms as transforms
 import clip
 import torchattacks
 import time
-# Giả sử utils.py chứa định nghĩa lớp ClipCustom như trong các ví dụ trước
-# Đảm bảo bạn đã import nó đúng cách nếu nó nằm trong file khác
-try:
-    from utils import ClipCustom
-except ImportError:
-    # Định nghĩa tạm ClipCustom ở đây nếu không có file utils.py
-    # Hoặc nếu cấu trúc khác, đảm bảo nó được import/định nghĩa đúng
-    print("Warning: Could not import ClipCustom from utils. Trying inline definition.")
-    class ClipCustom(nn.Module):
-        def __init__(self, clip_model, text_features):
-            super().__init__()
-            self.clip_model = clip_model
-            # text_features có thể là None ban đầu, nhưng cần được thiết lập đúng trước khi forward
-            self.text_features = text_features
-            # Lấy logit_scale từ model gốc
-            self.logit_scale = self.clip_model.logit_scale.exp()
 
-        def forward(self, images):
-            if self.text_features is None:
-                 raise ValueError("ClipCustom requires text_features to be set before calling forward.")
-            # Đảm bảo image features và text features có cùng dtype (nên là float32)
-            image_features = self.clip_model.encode_image(images.to(self.clip_model.dtype))
-            image_features = image_features / image_features.norm(dim=-1, keepdim=True)
+from utils import ClipCustom
 
-            # Tính toán logits
-            # Đảm bảo text_features cũng đúng dtype và device
-            logits_per_image = self.logit_scale * image_features @ self.text_features.to(image_features.device, dtype=image_features.dtype).T
-            return logits_per_image
-
-# Xử lý đối số đầu vào
 parser = argparse.ArgumentParser()
 parser.add_argument("--checkpoint", type=str, default=None, help="Path to checkpoint file")
 parser.add_argument("--prompt", type=str, default=None, help="Custom prompt (WARNING: Likely incompatible with PGD evaluation if used)")
@@ -51,13 +24,12 @@ PGD_EPS = 4/255
 PGD_ALPHA = PGD_EPS/4
 PGD_STEPS = 10
 
-# Load mô hình CLIP
 print("Loading CLIP model...")
 model, preprocess = clip.load(MODEL_NAME, device=DEVICE)
-model = model.float() # Đảm bảo model là float32
+model = model.float() 
 model.eval()
 
-print(f"CLIP model '{MODEL_NAME}' loaded and converted to float32.")
+print(f"CLIP model '{MODEL_NAME}' loaded .")
 print("Input resolution:", model.visual.input_resolution)
 
 # Load dataset
@@ -69,26 +41,22 @@ cifar10_classes = test_dataset.classes
 NUM_CLASSES = len(cifar10_classes)
 print(f"CIFAR-10 dataset loaded. Number of classes: {NUM_CLASSES}")
 
-# --- SỬA LỖI LOGIC XỬ LÝ TEXT PROMPT ---
 print("Processing text prompts...")
-text_features = None # Khởi tạo là None
+text_features = None 
 
-# Hàm helper để tạo prompt mặc định
 def get_default_text_features(clip_model, class_names, device):
     print("Generating text features using default class name prompts...")
-    # Sử dụng prompt tốt hơn một chút
-    text_descriptions = [f"a photo of a {class_name}" for class_name in class_names]
+    text_descriptions = [f"{class_name}" for class_name in class_names]
     text_tokens = clip.tokenize(text_descriptions).to(device)
     with torch.no_grad():
         features = clip_model.encode_text(text_tokens)
         features /= features.norm(dim=-1, keepdim=True)
     print(f"Generated default text features with shape: {features.shape}")
-    return features.float() # Đảm bảo là float32
+    return features.float()
 
 if args.checkpoint:
     print(f"Loading checkpoint: {args.checkpoint}")
     checkpoint = torch.load(args.checkpoint, map_location=DEVICE)
-    print("Checkpoint keys:", checkpoint.keys())
 
     if 'best_prompt_text' in checkpoint:
         loaded_prompt_data = checkpoint['best_prompt_text']
@@ -124,26 +92,20 @@ elif args.prompt:
     text_features = get_default_text_features(model, cifar10_classes, DEVICE)
 
 else:
-    # Trường hợp mặc định: không checkpoint, không custom prompt
     print("No checkpoint or custom prompt specified.")
     text_features = get_default_text_features(model, cifar10_classes, DEVICE)
 
-# Kiểm tra cuối cùng trước khi sử dụng text_features
 if text_features is None or text_features.shape[0] != NUM_CLASSES:
      raise ValueError(f"Failed to obtain valid text features for {NUM_CLASSES} classes. Final shape: {text_features.shape if text_features is not None else 'None'}")
 
 print(f"Using final text features with shape: {text_features.shape}")
-# --- KẾT THÚC SỬA LỖI LOGIC ---
 
-# Khởi tạo ClipCustom với text_features ĐÚNG
 clip_custom = ClipCustom(model, text_features).to(DEVICE)
 
-# Khởi tạo PGD Attack
 atk = torchattacks.PGD(clip_custom, eps=PGD_EPS, alpha=PGD_ALPHA, steps=PGD_STEPS)
 print(f"PGD Attack defined: eps={PGD_EPS}, alpha={PGD_ALPHA}, steps={PGD_STEPS}")
 print("Note: Attack operates on CLIP's preprocessed (normalized) images.")
 
-# --- Vòng lặp đánh giá (giữ nguyên) ---
 clean_correct_total = 0
 robust_correct_total = 0
 total_images = 0
@@ -151,7 +113,6 @@ total_images = 0
 print("\nStarting evaluation loop...")
 for i, (images, labels) in enumerate(test_loader):
     batch_start_time = time.time()
-    # Đảm bảo images và labels đúng device. Dtype của images nên là float32 từ dataloader/preprocess
     images, labels = images.to(DEVICE), labels.to(DEVICE)
 
     batch_size_current = images.shape[0]
@@ -161,7 +122,6 @@ for i, (images, labels) in enumerate(test_loader):
     # --- Clean Evaluation ---
     try:
         with torch.no_grad():
-            # clip_custom bây giờ có text_features đúng shape
             logits_clean = clip_custom(images)
             predictions_clean = logits_clean.argmax(dim=-1)
             batch_clean_correct = (predictions_clean == labels).sum().item()
@@ -172,9 +132,7 @@ for i, (images, labels) in enumerate(test_loader):
         print(f"Text features dtype: {clip_custom.text_features.dtype}, shape: {clip_custom.text_features.shape}")
         raise
 
-    # --- Adversarial Attack Generation ---
     try:
-        # atk gọi clip_custom(images) bên trong, cần text_features đúng shape
         adv_images = atk(images, labels)
     except Exception as e:
         print(f"\nError during PGD attack generation on batch {i}: {e}")
@@ -185,7 +143,6 @@ for i, (images, labels) in enumerate(test_loader):
         print("\nPotential CUDA Error. Consider running with CUDA_LAUNCH_BLOCKING=1 python your_script.py ... for more specific error location.")
         raise
 
-    # --- Robust Evaluation ---
     try:
         with torch.no_grad():
             logits_adv = clip_custom(adv_images)
