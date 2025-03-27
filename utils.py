@@ -133,10 +133,10 @@ class CustomCLIP(nn.Module):
         for i, data in enumerate(self.test_loader, start=1):
             try:
                 # few-shot data loader from Dassl
-                imgs, tgts = data['img'], data['label']
+                imgs,tgts = self.parse_batch(data)
             except:
                 imgs, tgts = data[:2]
-            imgs, tgts = imgs.cuda(), tgts.cuda()
+            # imgs, tgts = imgs.cuda(), tgts.cuda()
             bs = imgs.size(0)
 
             with torch.no_grad():
@@ -234,6 +234,14 @@ class CustomCLIP(nn.Module):
                                                            root=self.data_dir,dataset_dir="imagenet")
             self.classes = self.train_data.classes
             self.n_cls = len(self.classes)
+    def parse_batch(self,batch):
+        image = batch["image"]
+        label = batch["label"]
+        image = image.to(device=self.device, dtype=self.dtype)
+        label = label.to(device=self.device)
+        if self.parallel:
+            image = image.repeat(self.popsize, 1, 1, 1)
+        return image, label
 
 class AverageMeter(object):
     """Computes and stores the average and current value"""
