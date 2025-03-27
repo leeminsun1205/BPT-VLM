@@ -3,7 +3,6 @@ import torch
 from torch.nn import functional as F
 import numpy as np
 import clip
-from torchattacks import PGD
 from torchvision.datasets import CIFAR100
 from dataset.cifar100 import load_train_cifar100, load_test_cifar100
 from model.shallow_encoder import TextEncoder,VisionEncoder
@@ -211,43 +210,25 @@ class PromptCLIP_Shallow:
             #print("current loss: {}".format(self.min_loss))
         return loss
 
-    def test(self, model):
-        attack = PGD(model, eps=4/255, alpha=2.67/(4*255), steps=100)  # Chỉnh alpha để đúng toán tử
-        
+    @torch.no_grad()
+    def test(self):
         correct = 0.
         parallel = self.parallel
-        self.parallel = self.text_encoder.parallel = self.image_encoder.parallel = False
-    
-        device = next(self.image_encoder.parameters()).device  # Đảm bảo model chạy đúng thiết bị
-    
-        # --- Tính text features một lần ---
-        with torch.no_grad():  
-            text_features = self.text_encoder(self.best_prompt_text.to(device))
-            text_features = text_features / text_features.norm(dim=-1, keepdim=True)
-        
-        logit_scale = self.logit_scale.exp()
-    
+        self.parallel=self.text_encoder.parallel = self.image_encoder.parallel = False
         for batch in self.test_loader:
-            image, label = self.parse_batch(batch)
-            image, label = image.to(device), label.to(device)
-    
-            # --- Bật gradient cho ảnh để PGD hoạt động ---
-            image.requires_grad = True
-            adv_image = attack(image, label)  # Tạo ảnh đối kháng
-            image.requires_grad = False  # Tắt lại gradient
-    
-            # --- Trích xuất đặc trưng ảnh (không cần gradient) ---
-            with torch.no_grad():
-                image_features = self.image_encoder(adv_image, self.best_prompt_image.to(device))
-                image_features = image_features / image_features.norm(dim=-1, keepdim=True)
-    
-                logits = logit_scale * image_features @ text_features.t()
-                prediction = logits.argmax(dim=-1)
-                correct += (prediction == label).float().sum().item()
-    
-        self.parallel = self.text_encoder.parallel = self.image_encoder.parallel = parallel
-    
-        acc = correct / len(self.test_data)
+            image,label = self.parse_batch(batch)
+            text_features = self.text_encoder(self.best_prompt_text)
+            image_features = self.image_encoder(image,self.best_prompt_image)
+
+            image_features = image_features / image_features.norm(dim=-1,keepdim=True)
+            text_features = text_features / text_features.norm(dim=-1,keepdim=True)
+            logit_scale = self.logit_scale.exp()
+            logits = logit_scale*image_features@text_features.t()
+            prediction = logits.argmax(dim=-1)
+            correct += (prediction == label).float().sum()
+        self.parallel=self.text_encoder.parallel = self.image_encoder.parallel = parallel
+        acc = correct/len(self.test_data)
+        #print("Best Prompt Embedding - Acc : "+str(acc))
         return acc
 
     def load_dataset(self):

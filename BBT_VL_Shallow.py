@@ -75,8 +75,6 @@ opt_cfg = {'fitness_threshold': 1e-10,
            'n_individuals': cfg["popsize"],
            'is_restart': False}
 
-
-
 # Load algorithm
 opt = None
 if args.opt == "shallow_cma":
@@ -88,21 +86,24 @@ elif args.opt == "shallow_mmes":
 elif args.opt == "shallow_lmmaes":
     opt = Shallow_LMMAES(pro,opt_cfg)
 
+############
+
+############
 
 # Build CLIP model
 if args.task_name in __classification__:
     prompt_clip = PromptCLIP_Shallow(args.task_name,cfg)
-text_context = prompt_clip.get_text_information()
-image_context = prompt_clip.get_image_information()
-prompt_clip.text_encoder.set_context(text_context)
-prompt_clip.image_encoder.set_context(image_context)
-solutions = opt.ask()
-prompt_text_list= prompt_clip.generate_text_prompts([x[:intrinsic_dim_L] for x in solutions])
-prompt_image_list = prompt_clip.generate_visual_prompts([x[intrinsic_dim_L:] for x in solutions])
-prompt_clip.eval([prompt_text_list, prompt_image_list])
-acc_o = prompt_clip.test(prompt_clip)
-print("Original Acc : " + str(acc_o))
-# print("Original Acc Adv : " + str(acc_adv_o))
+# text_context = prompt_clip.get_text_information()
+# image_context = prompt_clip.get_image_information()
+# prompt_clip.text_encoder.set_context(text_context)
+# prompt_clip.image_encoder.set_context(image_context)
+# solutions = opt.ask()
+# prompt_text_list= prompt_clip.generate_text_prompts([x[:intrinsic_dim_L] for x in solutions])
+# prompt_image_list = prompt_clip.generate_visual_prompts([x[intrinsic_dim_L:] for x in solutions])
+# prompt_clip.eval([prompt_text_list, prompt_image_list])
+# acc_o = prompt_clip.test()
+# print("Original Acc : " + str(acc_o))
+# # print("Original Acc Adv : " + str(acc_adv_o))
 print('Population Size: {}'.format(cfg["popsize"]))
 
 # Black-box prompt tuning
