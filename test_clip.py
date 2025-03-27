@@ -37,7 +37,7 @@ task_name = args.task_name
 print(f"Loading {task_name} dataset...")
 
 test_dataset, test_loader, classes, NUM_CLASSES = load_test_data(task_name=args.task_name, batch_size=BATCH_SIZE, preprocess=preprocess, data_dir=args.data_dir)
-print(f"Test dataset loaded with {len(test_dataset)} samples.")
+# print(f"Test dataset loaded with {len(test_dataset)} samples.")
 print("Processing text prompts...")
 text_features = None 
 
