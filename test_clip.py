@@ -56,7 +56,7 @@ if args.checkpoint:
     text_features = text_encoder(prompts, prompter.tokenized_prompts)
     text_features = text_features / text_features.norm(dim=-1, keepdim=True)
     print(f"Loaded 'best_prompt_text' as tensor with shape: {loaded_prompt_data.shape}")
-
+    
 
 elif args.caption:
     print(f"Using single caption '{args.caption}' from command line.")
@@ -64,8 +64,14 @@ elif args.caption:
 
 else:
     print("No checkpoint or caption specified.")
-    text_features = get_text_information(model=model, classes=classes, device=DEVICE)
-
+    # text_features = get_text_information(model=model, classes=classes, device=DEVICE)
+    # text_features = text_encoder(prompt_text) 
+    # text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+    prompt = "X X X X X X X X {}"
+    prompts = torch.cat([clip.tokenize(prompt.format(c))
+                                 for c in classes])
+    text_features = model.encode_text(prompts)
+    text_features = text_features / text_features.norm(dim=-1, keepdim=True)
 print(f"Using final text features with shape: {text_features.shape}")
 
 clip_custom = ClipCustom(model, text_features).to(DEVICE)
