@@ -79,11 +79,13 @@ robust_correct_total = 0
 total_images = 0
 
 print("\nStarting evaluation loop...")
-for i, (images, labels) in enumerate(test_loader):
-    print(labels)
+for i, batch in enumerate(test_loader):
+    # print(labels)
     batch_start_time = time.time()
-    if not isinstance(labels, torch.Tensor):
-        labels = torch.tensor(labels, dtype=torch.long)
+    # if not isinstance(labels, torch.Tensor):
+    #     labels = torch.tensor(labels, dtype=torch.long)
+    images = batch["image"]
+    labels = batch["label"]
     images, labels = images.to(DEVICE), labels.to(DEVICE)
 
     batch_size_current = images.shape[0]
