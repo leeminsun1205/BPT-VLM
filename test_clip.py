@@ -80,6 +80,7 @@ total_images = 0
 
 print("\nStarting evaluation loop...")
 for i, (images, labels) in enumerate(test_loader):
+    print(labels)
     batch_start_time = time.time()
     if not isinstance(labels, torch.Tensor):
         labels = torch.tensor(labels, dtype=torch.long)
