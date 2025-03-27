@@ -52,7 +52,7 @@ if args.checkpoint:
 
     # if "token_suffix" in loaded_prompt_data:
     #     del loaded_prompt_data["token_suffix"]
-    prompter.loaded_prompt_data({'state':loaded_prompt_data}, strict=False)
+    prompter.load_state_dict({'state':loaded_prompt_data}, strict=False)
     text_encoder = TextEncoder(model)
     prompts = prompter()
     text_features = text_encoder(prompts, prompter.tokenized_prompts)
