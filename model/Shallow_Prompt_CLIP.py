@@ -3,6 +3,7 @@ import torch
 from torch.nn import functional as F
 import numpy as np
 import clip
+
 from torchvision.datasets import CIFAR100
 from dataset.cifar100 import load_train_cifar100, load_test_cifar100
 from model.shallow_encoder import TextEncoder,VisionEncoder

@@ -1,6 +1,7 @@
 import torch
 import argparse
 import yaml
+import clip
 from tqdm import tqdm
 from algorithm.CMA_ES import shallow_cma
 from algorithm.LM_CMA_ES import Shallow_LMCMAES
@@ -9,6 +10,8 @@ from algorithm.LMMAES import Shallow_LMMAES
 from model.Shallow_Prompt_CLIP import PromptCLIP_Shallow
 import numpy as np
 import time
+
+from utils import *
 
 __classification__ = ["CIFAR100","caltech101","StanfordCars","OxfordPets","UCF-101","DTD","EuroSAT",
                       "Food101","SUN397","ImageNet"]
@@ -87,7 +90,11 @@ elif args.opt == "shallow_lmmaes":
     opt = Shallow_LMMAES(pro,opt_cfg)
 
 ############
-
+model, preprocess = clip.load(__backbone__, device='cpu')
+model = CustomCLIP(model, preprocess, args.task_name, cls_prompt='{}', atk_prompt=None, cfg=cfg)
+model = model.cuda()
+model.eval()
+model.test()
 ############
 
 # Build CLIP model
