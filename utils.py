@@ -3,8 +3,9 @@ import clip
 import torch
 from clip.simple_tokenizer import SimpleTokenizer as _Tokenizer
 from torchvision.datasets import CIFAR100, CIFAR10
-from dataset.cifar100 import load_train_cifar100, load_test_cifar100
-from dataset.cifar10 import load_train_cifar10, load_test_cifar10
+from dataset.cifar100 import load_test_cifar100
+from dataset.cifar10 import load_test_cifar10
+from dataset.general import load_test
 _tokenizer = _Tokenizer()
 
 class ClipCustom(nn.Module):
