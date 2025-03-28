@@ -74,7 +74,7 @@ class FewshotDataset(Dataset):
                 tmp = self.all_train[index]
                 image_path = os.path.join(self.image_dir,tmp[0])
                 # convert img to compatible tensors
-                tmp_data = [self.prerpocess(Image.open(image_path)),tmp[1]]
+                tmp_data = [self.preprocess(Image.open(image_path)),tmp[1]]
                 new_train_data.append(tmp_data)
                 train_shot_count[label] += 1
         classes = [classes_dict[i] for i in range(len(classes_dict))]
