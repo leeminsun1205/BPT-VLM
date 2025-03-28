@@ -46,7 +46,7 @@ if args.checkpoint:
     prompter = PromptLearner(clip_model=model, classnames=classes)
     loaded_prompt_data = torch.load(args.checkpoint, map_location=DEVICE)['best_prompt_text']
     loaded_image_data = torch.load(args.checkpoint, map_location=DEVICE)['best_prompt_image']
-    print(loaded_image_data)
+    print(loaded_image_data.shape)
     # if "token_prefix" in loaded_prompt_data:
     #     del loaded_prompt_data["token_prefix"]
 
